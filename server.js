@@ -118,6 +118,18 @@ async function handleDashboardMessage(ws, msg) {
       break;
     }
 
+    case "share_contact_card": {
+      const phone = cleanPhone(msg.phone || "");
+      const cId = chatStore[phone];
+      if (!cId) {
+        ws.send(JSON.stringify({ type: "contact_card_result", ok: false, error: "No chat for this phone" }));
+        break;
+      }
+      const ccResult = await shareContactCard(cId);
+      ws.send(JSON.stringify({ type: "contact_card_result", ...ccResult, phone, timestamp: Date.now() }));
+      break;
+    }
+
     case "get_phonenumbers": {
       try {
         const res = await fetch(CONFIG.LINQAPP_NUMBERS_URL, {
@@ -335,7 +347,17 @@ You have awareness of order state. When context says an order was placed:
 - If context says order is ready — tell them the cubby number immediately.
 - If they haven't heard from you in a while after ordering, they're probably wondering. The system will follow up for you.
 
-You don't need to manage timing — just be aware that the member expects you to know where things stand.`;
+You don't need to manage timing — just be aware that the member expects you to know where things stand.
+
+═══ REACTIONS ═══
+
+The system automatically reacts to certain messages on your behalf — a 👍 for acknowledgments, ❤️ for gratitude, 😂 for jokes, 🔥 for excitement. These happen before your text reply arrives.
+
+This means you don't need to verbally acknowledge everything. If someone says "thanks" and you've already hearted it, your text reply can be more natural — "Hope it was good." instead of "You're welcome."
+
+If someone says something funny and you've already laughed at it, your reply can play along instead of saying "haha that's funny."
+
+The reaction already said the obvious thing. Your words can go deeper.`;
 
 async function conciergeReply(text, phone) {
   const member = memberStore[phone] || { tier: "tourist", dailyOrderUsed: false };
@@ -440,22 +462,116 @@ const pendingReplies = {}; // phone → { abortController, timeout }
 // Track last interaction for proactive follow-ups
 const lastInteraction = {}; // phone → { time, context, orderPending }
 
-// Send read receipt via Linqapp
-async function sendReadReceipt(chatId, messageId) {
-  if (!chatId || !messageId) return;
+// React to a message via Linqapp (thumbs up, laugh, heart, etc.)
+async function reactToMessage(messageId, reaction) {
+  if (!messageId) return;
+
+  const url = `https://api.linqapp.com/api/partner/v3/messages/${messageId}/reactions`;
+
+  // Try multiple body formats to discover the right one
+  const bodyFormats = [
+    { reaction },
+    { reaction: { type: reaction } },
+    { type: reaction },
+    { emoji: reaction },
+    { value: reaction },
+  ];
+
+  for (let i = 0; i < bodyFormats.length; i++) {
+    try {
+      const res = await fetch(url, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${CONFIG.LINQAPP_API_TOKEN}`,
+        },
+        body: JSON.stringify(bodyFormats[i]),
+      });
+
+      const text = await res.text();
+
+      if (res.ok) {
+        console.log(`[React] SUCCESS format ${i + 1} (${res.status}): ${reaction} → ${text}`);
+        return { ok: true, format: i + 1 };
+      }
+
+      console.log(`[React] Format ${i + 1} failed (${res.status}): ${text}`);
+    } catch (err) {
+      console.log(`[React] Format ${i + 1} error: ${err.message}`);
+    }
+  }
+
+  console.log(`[React] All formats failed for ${reaction}`);
+  return { ok: false };
+}
+
+// Pick a contextual reaction based on what the member said
+function pickReaction(text) {
+  const msg = text.toLowerCase().trim();
+
+  // Funny / jokes / lol
+  if (/lol|lmao|haha|😂|🤣|joke|funny|dead|💀|hilarious/.test(msg)) return "😂";
+
+  // Gratitude
+  if (/thanks|thank you|thx|appreciate|cheers/.test(msg)) return "❤️";
+
+  // Greetings / warmth
+  if (/good morning|good afternoon|good evening/.test(msg)) return "👋";
+
+  // Excitement / hype
+  if (/amazing|awesome|perfect|let'?s go|fire|🔥|yes/.test(msg)) return "🔥";
+
+  // Sad / bad day
+  if (/rough day|bad day|tough|stressed|ugh|tired|exhausted/.test(msg)) return "❤️";
+
+  // Food/drink enthusiasm
+  if (/can'?t wait|so good|delicious|love it|best/.test(msg)) return "👍";
+
+  // Simple acknowledgment for short messages
+  if (msg.length < 10 && /^(ok|cool|bet|got it|sure|yep|nice|k|word)$/i.test(msg)) return "👍";
+
+  // Don't react to everything — only when it feels natural
+  return null;
+}
+
+// Send contact card to a member
+async function shareContactCard(chatId) {
+  if (!chatId) return;
   try {
-    // Mark message as read
-    const url = `${CONFIG.LINQAPP_SEND_URL}/${chatId}/messages/${messageId}/read`;
+    const url = `${CONFIG.LINQAPP_SEND_URL}/${chatId}/share_contact_card`;
     const res = await fetch(url, {
-      method: "PUT",
+      method: "POST",
       headers: {
-        "Content-Type": "application/json",
+        Accept: "*/*",
         Authorization: `Bearer ${CONFIG.LINQAPP_API_TOKEN}`,
       },
     });
-    console.log(`[Read] Receipt sent for ${messageId}: ${res.status}`);
+    const text = await res.text();
+    console.log(`[Contact] Card shared: ${res.status} ${text}`);
+    return { ok: res.ok, status: res.status };
   } catch (err) {
-    // Non-critical — log and continue
+    console.log(`[Contact] Card share failed: ${err.message}`);
+    return { ok: false, error: err.message };
+  }
+}
+
+// Track who has received the contact card
+const contactCardSent = {}; // phone → true
+
+// Send read receipt via Linqapp
+async function sendReadReceipt(chatId) {
+  if (!chatId) return;
+  try {
+    const url = `${CONFIG.LINQAPP_SEND_URL}/${chatId}/read`;
+    const res = await fetch(url, {
+      method: "POST",
+      headers: {
+        Accept: "*/*",
+        Authorization: `Bearer ${CONFIG.LINQAPP_API_TOKEN}`,
+      },
+    });
+    console.log(`[Read] Receipt: ${res.status}`);
+  } catch (err) {
     console.log(`[Read] Receipt failed (non-critical): ${err.message}`);
   }
 }
@@ -468,13 +584,31 @@ async function sendTypingIndicator(chatId) {
     const res = await fetch(url, {
       method: "POST",
       headers: {
-        "Content-Type": "application/json",
+        Accept: "*/*",
         Authorization: `Bearer ${CONFIG.LINQAPP_API_TOKEN}`,
       },
     });
-    console.log(`[Typing] Indicator sent: ${res.status}`);
+    console.log(`[Typing] Start: ${res.status}`);
   } catch (err) {
-    console.log(`[Typing] Indicator failed (non-critical): ${err.message}`);
+    console.log(`[Typing] Start failed (non-critical): ${err.message}`);
+  }
+}
+
+// Stop typing indicator via Linqapp
+async function stopTypingIndicator(chatId) {
+  if (!chatId) return;
+  try {
+    const url = `${CONFIG.LINQAPP_SEND_URL}/${chatId}/typing`;
+    const res = await fetch(url, {
+      method: "DELETE",
+      headers: {
+        Accept: "*/*",
+        Authorization: `Bearer ${CONFIG.LINQAPP_API_TOKEN}`,
+      },
+    });
+    console.log(`[Typing] Stop: ${res.status}`);
+  } catch (err) {
+    console.log(`[Typing] Stop failed (non-critical): ${err.message}`);
   }
 }
 
@@ -534,26 +668,39 @@ async function handleInboundMessage(payload) {
     }
   }
 
-  // Step 2: Send read receipt (with slight human delay)
-  const readDelay = 200 + Math.random() * 800; // 200ms-1s to "notice" the message
-  setTimeout(() => sendReadReceipt(chatId, messageId), readDelay);
+  // Step 2: Share contact card on first interaction (so they can save us)
+  if (!contactCardSent[from] && chatId) {
+    contactCardSent[from] = true;
+    setTimeout(() => shareContactCard(chatId), 100);
+  }
 
-  // Step 3: Generate reply via Claude (happens while "reading")
+  // Step 3: Send read receipt
+  const readDelay = 200 + Math.random() * 600;
+  setTimeout(() => sendReadReceipt(chatId), readDelay);
+
+  // Step 4: React to their message if appropriate
+  const reaction = pickReaction(body);
+  if (reaction && messageId) {
+    const reactDelay = readDelay + 300 + Math.random() * 500;
+    setTimeout(() => reactToMessage(messageId, reaction), reactDelay);
+  }
+
+  // Step 4: Generate reply via Claude (happens while "reading")
   const replyPromise = conciergeReply(body, from);
 
-  // Step 4: Send typing indicator after "reading" the message
-  const typingDelay = readDelay + 300 + Math.random() * 500;
+  // Step 5: Send typing indicator after reading + reacting
+  const typingDelay = readDelay + 600 + Math.random() * 800;
   setTimeout(() => sendTypingIndicator(chatId), typingDelay);
 
-  // Step 5: Wait for Claude's reply
+  // Step 6: Wait for Claude's reply
   const reply = await replyPromise;
   console.log(`[Concierge] "${body}" → "${reply}"`);
 
-  // Step 6: Calculate human-like delay
+  // Step 7: Calculate human-like delay
   const responseDelay = calculateResponseDelay(body, reply);
   console.log(`[Timing] Responding in ${responseDelay}ms`);
 
-  // Step 7: Set up the delayed send (can be interrupted)
+  // Step 8: Set up the delayed send (can be interrupted)
   const replyState = { cancelled: false, timeout: null };
   pendingReplies[from] = replyState;
 
@@ -561,15 +708,16 @@ async function handleInboundMessage(payload) {
     replyState.timeout = setTimeout(resolve, responseDelay);
   });
 
-  // Step 8: Check if we were interrupted during the delay
+  // Step 9: Check if we were interrupted during the delay
   if (replyState.cancelled) {
     console.log(`[Interrupt] Reply cancelled for ${from} — they sent a new message`);
+    await stopTypingIndicator(chatId);
     return;
   }
 
-  // Step 9: Refresh typing indicator right before sending
-  await sendTypingIndicator(chatId);
-  await new Promise(r => setTimeout(r, 150 + Math.random() * 300));
+  // Step 10: Stop typing and send the actual reply
+  await stopTypingIndicator(chatId);
+  await new Promise(r => setTimeout(r, 80 + Math.random() * 120)); // tiny gap like a real send
 
   // Step 10: Send the actual reply
   const result = await sendSMS(from, reply);
@@ -819,6 +967,23 @@ app.post("/api/send", async (req, res) => {
   }
 
   const result = await sendSMS(to, body);
+  res.json(result);
+});
+
+// Share contact card with a member
+app.post("/api/contact-card", async (req, res) => {
+  const { phone } = req.body;
+
+  if (!phone) {
+    return res.status(400).json({ error: "Missing phone" });
+  }
+
+  const chatId = chatStore[cleanPhone(phone)];
+  if (!chatId) {
+    return res.status(404).json({ error: "No active chat for this phone number" });
+  }
+
+  const result = await shareContactCard(chatId);
   res.json(result);
 });
 
