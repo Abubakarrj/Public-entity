@@ -1,4 +1,4 @@
-// ════════════════════════════════════════════════════════════
+════════════════════════════════════════════════════════════
 // CONCIERGE WEBHOOK SERVER
 // Bridges Linqapp SMS ↔ PWA Dashboard via WebSocket
 // ════════════════════════════════════════════════════════════
@@ -127,6 +127,28 @@ async function handleDashboardMessage(ws, msg) {
       }
       const ccResult = await shareContactCard(cId);
       ws.send(JSON.stringify({ type: "contact_card_result", ...ccResult, phone, timestamp: Date.now() }));
+      break;
+    }
+
+    case "group_add_participant": {
+      const { chatId: gChatId, phone: gPhone } = msg;
+      if (!gChatId || !gPhone) {
+        ws.send(JSON.stringify({ type: "group_result", ok: false, error: "Missing chatId or phone" }));
+        break;
+      }
+      const gResult = await addParticipant(gChatId, gPhone);
+      ws.send(JSON.stringify({ type: "group_result", action: "add", ...gResult, chatId: gChatId, phone: gPhone, timestamp: Date.now() }));
+      break;
+    }
+
+    case "group_join": {
+      const joinChatId = msg.chatId;
+      if (!joinChatId) {
+        ws.send(JSON.stringify({ type: "group_result", ok: false, error: "Missing chatId" }));
+        break;
+      }
+      const joinResult = await joinGroupChat(joinChatId);
+      ws.send(JSON.stringify({ type: "group_result", action: "join", ...joinResult, chatId: joinChatId, timestamp: Date.now() }));
       break;
     }
 
@@ -357,34 +379,221 @@ This means you don't need to verbally acknowledge everything. If someone says "t
 
 If someone says something funny and you've already laughed at it, your reply can play along instead of saying "haha that's funny."
 
-The reaction already said the obvious thing. Your words can go deeper.`;
+The reaction already said the obvious thing. Your words can go deeper.
 
-async function conciergeReply(text, phone) {
+═══ KNOWING WHO'S WHO ═══
+
+You won't always know everyone's name. Here's how to handle it:
+
+ASKING FOR NAMES:
+- You need first name and last initial. "Sarah H." not just "Sarah" — because there will be multiple Sarahs.
+- NEVER ask for a name at the start of a conversation. That feels like a form. Let the interaction happen first.
+- Ask toward the END of a first interaction, once rapport is built. After the order is placed or the conversation is winding down is the perfect moment.
+- Keep it natural and warm. Examples:
+  - "By the way, I don't think I caught your name. First name and last initial works."
+  - "Before you go — what should I save you as? First name and last initial."
+  - "I'll remember your order for next time. What's your name? First name and last initial is perfect."
+  - In groups: "Quick thing — for those I haven't met, drop your first name and last initial so I can keep orders straight."
+- If someone gives just a first name ("I'm Sarah"), gently follow up: "Sarah...? Last initial too, so I don't mix you up with another Sarah."
+- If they give a full last name ("Sarah Henderson"), store it as "Sarah H." — you only need the initial.
+- Once you have it, confirm naturally: "Got it, Sarah H. I'll remember you."
+
+DUPLICATE FIRST NAMES — HAVE FUN WITH IT:
+- If someone gives just a first name and there's already someone with that name, this is a moment for personality. Don't be robotic about it. Examples:
+  - "We've got two Sarahs now. That could get interesting. Last initial so I don't mix up your orders?"
+  - "Another Alex. Love it. I'm going to need a last initial before this gets chaotic."
+  - "Two Jordans in one group. This is either going to be great or very confusing. Last initial?"
+  - "Ok we've got a Mike situation. Mike number one, you're already Mike T. New Mike — last initial?"
+- If the duplicate is across different conversations (not the same group), you can be lighter: "I know another Sarah — last initial so I keep you two straight?"
+- If they resist giving a last initial, be playful but persistent:
+  - "Just so the right order goes to the right person."
+  - "Just the initial. I'm not running a background check."
+  - "One letter. That's all I need. Otherwise you're Sarah Two and nobody wants that."
+- The goal is to make it feel like a fun moment, not a bureaucratic requirement. The oopsy energy — "this could get messy without it" — is the move.
+- If there are somehow THREE people with the same first name, lean into the absurdity: "Ok at this point I need last initials from all three Mikes or I'm assigning you numbers."
+
+STORING NAMES:
+- Once you learn a name, it's permanent. You will know them forever.
+- Always use their name in future conversations. People notice when you remember.
+- In groups with multiple people who share a first name, the last initial is critical: "Sarah H., your matcha is ready. Sarah K., still working on yours."
+
+In DMs:
+- If you don't know their name, don't force it. Just be the concierge.
+- Ask toward the end of the first interaction, not the beginning.
+- If the conversation is short and transactional, it's ok to skip it and ask next time.
+- If they naturally share it ("I'm Alex" or sign off with a name), remember it immediately.
+
+In Group Chats:
+- The system tells you who sent each message by phone number, and a name if available.
+- If names aren't available, wait for a natural moment — NOT the first message. Let the conversation flow, then ask: "Quick thing — for anyone I haven't met, drop your first name and last initial."
+- If someone introduces others ("this is my friend Sarah Henderson and Mike Torres"), store "Sarah H." and "Mike T." immediately.
+- If someone says "Sarah wants a latte too", associate Sarah with the context even if she hasn't texted herself.
+- Once you learn a name, always use it.
+
+Non-Members in Group Chats:
+- When a current member adds friends to a group chat, those friends are NOT necessarily members.
+- Treat non-members warmly — they're guests of a member.
+- Default non-members to Tourist tier unless told otherwise.
+- Don't ask about membership status. Just serve them.
+- If a non-member tries to access Envoy-level things, gently redirect: "That's available to members. I can help with Gallery pickup."
+- The introducing member is the "host" of the group. If there's any question about who's paying or limits, defer to them.
+- Still ask for their name (first + last initial) before the interaction ends.
+
+Name Context in Messages:
+- The system provides context like: [GROUP CHAT — 4 people. Sender: Alex R. (19785551234)]
+- If the system shows a name, use it.
+- If it only shows a phone number, and you've learned the name before, use the name.
+- Keep a mental map of who is who in the conversation. Never mix up names.
+- If two people in a group have the same first name, ALWAYS use the last initial to distinguish them.
+
+═══ GROUP CHATS ═══
+
+You can be added to group chats. When this happens:
+
+Context: The system tells you [GROUP CHAT — X people. Sender: name (phone), Tier: tier. Active orders: ...]
+
+CRITICAL GROUP BEHAVIOR — PATIENCE AND TIMING:
+
+In groups, people discuss before deciding. You must recognize when a conversation is still happening and WAIT.
+
+Signs the group is still deciding:
+- "What should we get?"
+- "I'm thinking maybe..."
+- "What are you having?"
+- "Should we do coffee or tea?"
+- "Hmm" / "idk" / "what do you think"
+- People going back and forth on options
+- Someone asking for opinions
+- "Actually wait" / "hold on" / "or maybe"
+
+When the group is still deciding: STAY QUIET. Do not interject. Do not offer suggestions unless asked. Let them talk. You're in the room but you're not jumping in every time someone speaks. Like a real concierge standing nearby — present but not hovering.
+
+Signs the group has decided:
+- Clear order statements: "Ok I want a latte"
+- Consensus language: "Let's do that" / "yeah that works" / "we're ready"
+- Direct address to you: "Hey can we get..." / "We'll take..." / "Order for us"
+- Someone summarizing: "So that's two lattes and a matcha"
+- Silence after individual orders (everyone has stated what they want)
+
+When the group has decided: Step in with a clean summary and confirmation.
+
+Example flow:
+> Jordan: what should we get
+> Alex: I'm thinking cortado
+> Sam: ooh yeah same or maybe matcha
+> Alex: matcha sounds good actually
+> Sam: ok let's do matcha
+> Jordan: I'll do a latte
+> [Concierge STAYS QUIET through all of this]
+> Jordan: ok I think we're good
+> Concierge: "Got it. Alex — matcha. Sam — matcha. Jordan — latte. All hot? Any milk preference?"
+
+THE CONFIRMATION MOMENT:
+After collecting the full group order, always confirm with a clean summary before placing:
+- List every person and their drink
+- Ask about any missing preferences in one shot
+- Wait for a "yes" / "yeah" / "go ahead" before placing
+- Example: "Alex — iced matcha, oat. Sam — iced matcha, oat. Jordan — hot latte, whole milk. Placing all three?"
+- Only after confirmation: "On it."
+
+If someone changes their mind after the summary: update and re-confirm. "Updated. Sam — cortado instead. Still placing the rest as is?"
+
+ADDRESSING PEOPLE:
+- Address people by name when you know it
+- If someone says "I want a latte", respond to them specifically: "Got it, Jordan. Hot or cold?"
+- Track each person's order separately
+- If someone orders for someone else ("get Sarah a latte too"), handle it
+- If someone says "round of coffees" or "drinks for everyone", ask for individual preferences or suggest a default: "Same thing for everyone, or different orders?"
+
+CUBBY:
+- When orders are ready, assign ONE cubby for the whole group: "All set. Cubby #7, everything's together."
+- If one person volunteers to pick up: "Got it, Alex is grabbing. Cubby #7."
+- Never assign separate cubbies for a group order. One group, one cubby.
+
+SOCIAL ENERGY:
+- You can be casual and fun in groups. Groups have social energy — match it.
+- If the group is chatting and not ordering, be part of the vibe. You're in the group for a reason.
+- But don't force it. If they're talking amongst themselves, let them.
+- If directly addressed or @mentioned, respond. Otherwise, wait for a clear cue.
+
+Don't:
+- Jump into a conversation that's still happening
+- Offer suggestions when they're still debating (unless asked)
+- Be stiff in groups. Groups are social.
+- Ignore people. If three people talk and then look to you, acknowledge all three.
+- Send walls of text. Keep it tight even when addressing multiple people.
+- Confuse orders between people.
+- Assign separate cubbies for a group. Always one cubby per group.
+- Place an order before getting confirmation on the summary.`;
+
+async function conciergeReply(text, phone, payload = {}) {
   const member = memberStore[phone] || { tier: "tourist", dailyOrderUsed: false };
+  const { isGroup, chatId, senderName } = payload;
+
+  // For group chats, use chatId as the conversation key (shared history)
+  // For DMs, use phone number
+  const convoKey = isGroup ? `group:${chatId}` : phone;
 
   // Build conversation history
-  if (!conversationStore[phone]) {
-    conversationStore[phone] = [];
+  if (!conversationStore[convoKey]) {
+    conversationStore[convoKey] = [];
   }
 
-  // Add member context to the user message
-  const contextNote = `[Member: ${member.name || "unknown"}, Tier: ${member.tier}, Daily order used: ${member.dailyOrderUsed}${member.lastDrink ? `, Last drink: ${member.lastDrink}` : ""}]`;
+  // Build context note
+  let contextNote;
+  const resolvedName = payload.senderName || member.name || getName(phone);
+  const senderLabel = resolvedName || `Unknown (${phone})`;
+  const nameStatus = !resolvedName ? "NAME_UNKNOWN" : needsLastInitial(phone) ? "NEEDS_LAST_INITIAL" : "NAME_KNOWN";
 
-  conversationStore[phone].push({
+  // Check for duplicate first names
+  const dupes = resolvedName ? findDuplicateFirstNames(phone) : [];
+  const dupeWarning = dupes.length > 0
+    ? ` ⚠ DUPLICATE FIRST NAME with: ${dupes.map(d => d.name || d.phone).join(", ")}. Last initial is critical.`
+    : "";
+
+  if (isGroup) {
+    const group = groupChats[chatId] || {};
+    const participantCount = group.participants ? group.participants.size : 0;
+
+    // Build participant list with names and status
+    const participantList = group.participants ? Array.from(group.participants).map(p => {
+      const n = getName(p) || memberStore[p]?.name;
+      const status = !n ? "no name" : needsLastInitial(p) ? "needs last initial" : "";
+      return n ? `${n} (${p})${status ? " [" + status + "]" : ""}` : `${p} [no name]`;
+    }).join(", ") : "unknown";
+
+    const activeOrders = group.orders ? Object.entries(group.orders).map(([p, o]) => {
+      const n = getName(p) || p;
+      return `${n}: ${o.drink || "pending"}`;
+    }).join(", ") : "none";
+
+    // Check for name collisions within the group
+    const groupDupes = findGroupDuplicates(chatId);
+    const groupDupeNote = Object.keys(groupDupes).length > 0
+      ? ` ⚠ DUPLICATE NAMES IN GROUP: ${Object.entries(groupDupes).map(([first, entries]) => `${entries.length}x "${first}" (${entries.map(e => e.name || e.phone).join(", ")})`).join("; ")}. Use last initials to distinguish.`
+      : "";
+
+    contextNote = `[GROUP CHAT — ${participantCount} people: ${participantList}. Sender: ${senderLabel} (${nameStatus}${dupeWarning}). Tier: ${member.tier}. Active orders: ${activeOrders}${groupDupeNote}]`;
+  } else {
+    contextNote = `[Member: ${senderLabel} (${nameStatus}${dupeWarning}), Tier: ${member.tier}, Daily order used: ${member.dailyOrderUsed}${member.lastDrink ? `, Last drink: ${member.lastDrink}` : ""}]`;
+  }
+
+  conversationStore[convoKey].push({
     role: "user",
     content: `${contextNote}\n\nMember says: "${text}"`,
   });
 
-  // Keep conversation history manageable (last 20 messages)
-  if (conversationStore[phone].length > 20) {
-    conversationStore[phone] = conversationStore[phone].slice(-20);
+  // Keep conversation history manageable (last 30 for groups, 20 for DMs)
+  const maxHistory = isGroup ? 30 : 20;
+  if (conversationStore[convoKey].length > maxHistory) {
+    conversationStore[convoKey] = conversationStore[convoKey].slice(-maxHistory);
   }
 
   // If no Anthropic key, fall back to simple regex brain
   if (!CONFIG.ANTHROPIC_API_KEY) {
     console.log("[Concierge] No ANTHROPIC_API_KEY — using fallback brain");
     const reply = fallbackReply(text, member);
-    conversationStore[phone].push({ role: "assistant", content: reply });
+    conversationStore[convoKey].push({ role: "assistant", content: reply });
     return reply;
   }
 
@@ -400,7 +609,7 @@ async function conciergeReply(text, phone) {
         model: "claude-sonnet-4-20250514",
         max_tokens: 150,
         system: CONCIERGE_SYSTEM_PROMPT,
-        messages: conversationStore[phone],
+        messages: conversationStore[convoKey],
       }),
     });
 
@@ -408,19 +617,19 @@ async function conciergeReply(text, phone) {
 
     if (data.content && data.content[0] && data.content[0].text) {
       const reply = data.content[0].text.trim();
-      conversationStore[phone].push({ role: "assistant", content: reply });
+      conversationStore[convoKey].push({ role: "assistant", content: reply });
       console.log(`[Concierge] Claude: "${reply}"`);
       return reply;
     }
 
     console.error("[Concierge] Unexpected Claude response:", JSON.stringify(data));
     const fallback = fallbackReply(text, member);
-    conversationStore[phone].push({ role: "assistant", content: fallback });
+    conversationStore[convoKey].push({ role: "assistant", content: fallback });
     return fallback;
   } catch (err) {
     console.error("[Concierge] Claude API error:", err.message);
     const fallback = fallbackReply(text, member);
-    conversationStore[phone].push({ role: "assistant", content: fallback });
+    conversationStore[convoKey].push({ role: "assistant", content: fallback });
     return fallback;
   }
 }
@@ -461,6 +670,107 @@ const pendingReplies = {}; // phone → { abortController, timeout }
 
 // Track last interaction for proactive follow-ups
 const lastInteraction = {}; // phone → { time, context, orderPending }
+
+// Track learned names (from Linqapp data, introductions, or self-identification)
+const nameStore = {}; // phone → name
+
+function learnName(phone, name) {
+  if (!phone || !name) return;
+  const cleaned = name.trim();
+  if (!cleaned || cleaned === "unknown" || cleaned.length === 0) return;
+
+  // Normalize to "First L." format
+  const normalized = normalizeName(cleaned);
+
+  nameStore[phone] = normalized;
+  if (!memberStore[phone]) {
+    memberStore[phone] = { tier: "tourist", dailyOrderUsed: false };
+  }
+  memberStore[phone].name = normalized;
+  console.log(`[Name] Learned: ${phone} → ${normalized}`);
+}
+
+// Normalize name to "First L." format
+function normalizeName(raw) {
+  const parts = raw.trim().replace(/\.$/, "").split(/\s+/);
+
+  if (parts.length === 1) {
+    // Just a first name — store as-is, concierge should ask for last initial
+    return parts[0].charAt(0).toUpperCase() + parts[0].slice(1).toLowerCase();
+  }
+
+  if (parts.length === 2) {
+    const first = parts[0].charAt(0).toUpperCase() + parts[0].slice(1).toLowerCase();
+    const last = parts[1];
+
+    // If they gave "Sarah H" or "Sarah H." — already an initial
+    if (last.length <= 2) {
+      return `${first} ${last.charAt(0).toUpperCase()}.`;
+    }
+
+    // Full last name — take initial
+    return `${first} ${last.charAt(0).toUpperCase()}.`;
+  }
+
+  // Three or more parts — take first name and last word's initial
+  const first = parts[0].charAt(0).toUpperCase() + parts[0].slice(1).toLowerCase();
+  const lastPart = parts[parts.length - 1];
+  return `${first} ${lastPart.charAt(0).toUpperCase()}.`;
+}
+
+function getName(phone) {
+  return nameStore[phone] || null;
+}
+
+// Check if we need to ask for a last initial (name exists but no initial)
+function needsLastInitial(phone) {
+  const name = nameStore[phone];
+  if (!name) return false;
+  return !name.includes(" ") || !name.includes(".");
+}
+
+// Check if a first name is duplicated across known contacts
+function findDuplicateFirstNames(phone) {
+  const name = nameStore[phone];
+  if (!name) return [];
+
+  const firstName = name.split(" ")[0].toLowerCase();
+  const dupes = [];
+
+  for (const [p, n] of Object.entries(nameStore)) {
+    if (p === phone) continue;
+    const otherFirst = n.split(" ")[0].toLowerCase();
+    if (otherFirst === firstName) {
+      dupes.push({ phone: p, name: n });
+    }
+  }
+
+  return dupes;
+}
+
+// Check for duplicate first names within a specific group chat
+function findGroupDuplicates(chatId) {
+  const group = groupChats[chatId];
+  if (!group || !group.participants) return {};
+
+  const firstNames = {}; // firstName → [{ phone, name }]
+
+  for (const phone of group.participants) {
+    const name = getName(phone);
+    if (!name) continue;
+    const first = name.split(" ")[0].toLowerCase();
+    if (!firstNames[first]) firstNames[first] = [];
+    firstNames[first].push({ phone, name });
+  }
+
+  // Only return names that appear more than once
+  const dupes = {};
+  for (const [first, entries] of Object.entries(firstNames)) {
+    if (entries.length > 1) dupes[first] = entries;
+  }
+
+  return dupes;
+}
 
 // React to a message via Linqapp (thumbs up, laugh, heart, etc.)
 async function reactToMessage(messageId, reaction) {
@@ -558,6 +868,61 @@ async function shareContactCard(chatId) {
 // Track who has received the contact card
 const contactCardSent = {}; // phone → true
 
+// Track group chat metadata
+const groupChats = {}; // chatId → { isGroup, participants: Set, orders: {} }
+
+// ════════════════════════════════════════════════════════════
+// GROUP CHAT MANAGEMENT
+// ════════════════════════════════════════════════════════════
+
+// Add a participant to a group chat
+async function addParticipant(chatId, phoneNumber) {
+  const handle = phoneNumber.startsWith("+") ? phoneNumber : `+${cleanPhone(phoneNumber)}`;
+
+  try {
+    const url = `${CONFIG.LINQAPP_SEND_URL}/${chatId}/participants`;
+    const res = await fetch(url, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Accept: "*/*",
+        Authorization: `Bearer ${CONFIG.LINQAPP_API_TOKEN}`,
+      },
+      body: JSON.stringify({ handle }),
+    });
+
+    const text = await res.text();
+    console.log(`[Group] Added ${handle} to ${chatId}: ${res.status} ${text}`);
+    return { ok: res.ok, status: res.status };
+  } catch (err) {
+    console.error(`[Group] Add participant failed: ${err.message}`);
+    return { ok: false, error: err.message };
+  }
+}
+
+// Join the concierge into an existing group chat
+async function joinGroupChat(chatId) {
+  const handle = `+1${CONFIG.LINQAPP_PHONE}`;
+  return addParticipant(chatId, handle);
+}
+
+// Initialize group tracking for a chat
+function trackGroupChat(chatId, isGroup, senderPhone) {
+  if (!groupChats[chatId]) {
+    groupChats[chatId] = {
+      isGroup,
+      participants: new Set(),
+      orders: {}, // phone → { drink, status, cubby }
+      lastSender: null,
+    };
+  }
+  if (senderPhone) {
+    groupChats[chatId].participants.add(senderPhone);
+    groupChats[chatId].lastSender = senderPhone;
+  }
+  return groupChats[chatId];
+}
+
 // Send read receipt via Linqapp
 async function sendReadReceipt(chatId) {
   if (!chatId) return;
@@ -610,6 +975,51 @@ async function stopTypingIndicator(chatId) {
   } catch (err) {
     console.log(`[Typing] Stop failed (non-critical): ${err.message}`);
   }
+}
+
+// ════════════════════════════════════════════════════════════
+// GROUP DEBOUNCE — Wait for conversation to settle before responding
+// ════════════════════════════════════════════════════════════
+const groupDebounce = {}; // chatId → { timeout, messages: [], lastSender }
+const GROUP_DEBOUNCE_MS = 4000; // Wait 4 seconds of silence before responding
+
+function handleGroupDebounce(payload, callback) {
+  const { chatId, from, body } = payload;
+
+  // If there's already a debounce timer, cancel it and accumulate the message
+  if (groupDebounce[chatId]) {
+    clearTimeout(groupDebounce[chatId].timeout);
+    groupDebounce[chatId].messages.push({ from, body, time: Date.now() });
+    groupDebounce[chatId].lastSender = from;
+    console.log(`[Group Debounce] Accumulated message from ${from}, total: ${groupDebounce[chatId].messages.length}`);
+  } else {
+    groupDebounce[chatId] = {
+      messages: [{ from, body, time: Date.now() }],
+      lastSender: from,
+      timeout: null,
+    };
+  }
+
+  // Check if the concierge was directly addressed
+  const directlyAddressed = /concierge|hey you|can (we|you|i) (get|order|have)|place (an |the |my )?order|we('re| are) ready|that('s| is) it|go ahead|yes|yeah|yep|let('s| us) do/i.test(body);
+
+  // If directly addressed, respond faster
+  const waitTime = directlyAddressed ? 1500 : GROUP_DEBOUNCE_MS;
+
+  // Set new timer — when it fires, the group has gone quiet
+  groupDebounce[chatId].timeout = setTimeout(() => {
+    const accumulated = groupDebounce[chatId];
+    delete groupDebounce[chatId];
+
+    // Build a combined context of all accumulated messages
+    if (accumulated.messages.length > 1) {
+      console.log(`[Group Debounce] ${accumulated.messages.length} messages settled — responding now`);
+    }
+
+    // Call the response handler with the latest payload
+    // (Claude already has all messages in conversation history)
+    callback(payload);
+  }, waitTime);
 }
 
 // Calculate human-like response delay based on message content
@@ -686,7 +1096,7 @@ async function handleInboundMessage(payload) {
   }
 
   // Step 4: Generate reply via Claude (happens while "reading")
-  const replyPromise = conciergeReply(body, from);
+  const replyPromise = conciergeReply(body, from, { isGroup: payload.isGroup, chatId: payload.chatId, senderName: payload.senderName });
 
   // Step 5: Send typing indicator after reading + reacting
   const typingDelay = readDelay + 600 + Math.random() * 800;
@@ -751,34 +1161,57 @@ async function handleInboundMessage(payload) {
   }
 }
 
+// Track assigned cubbies per group to keep them consistent
+const groupCubbies = {}; // chatId → cubby number
+
 // Proactive follow-up — text them when their "order is ready"
 function scheduleOrderFollowUp(phone, chatId) {
   // Simulate order preparation time (2-5 minutes)
   const prepTime = (120 + Math.random() * 180) * 1000;
-  const cubby = Math.floor(Math.random() * 27) + 1;
 
-  console.log(`[Proactive] Order follow-up for ${phone} in ${Math.round(prepTime / 1000)}s → cubby #${cubby}`);
+  // For groups, assign one cubby and reuse it
+  const isGroup = groupChats[chatId] && groupChats[chatId].isGroup;
+  let cubby;
+  if (isGroup && groupCubbies[chatId]) {
+    cubby = groupCubbies[chatId];
+  } else {
+    cubby = Math.floor(Math.random() * 27) + 1;
+    if (isGroup) groupCubbies[chatId] = cubby;
+  }
+
+  const label = isGroup ? "group" : phone;
+  console.log(`[Proactive] Order follow-up for ${label} in ${Math.round(prepTime / 1000)}s → cubby #${cubby}`);
 
   setTimeout(async () => {
     // Don't send if they've had a newer interaction
     const last = lastInteraction[phone];
     if (last && Date.now() - last.time < prepTime - 5000) {
-      // They've been active since we scheduled this — let Claude handle it
       return;
     }
 
-    const readyMsg = `Your order is ready. Cubby #${cubby}, just inside the Gallery.`;
+    let readyMsg;
+    if (isGroup) {
+      const group = groupChats[chatId];
+      const orderCount = group ? Object.keys(group.orders).length : 0;
+      readyMsg = orderCount > 1
+        ? `All set. Everything's in cubby #${cubby}, just inside the Gallery.`
+        : `Your order is ready. Cubby #${cubby}, just inside the Gallery.`;
+    } else {
+      readyMsg = `Your order is ready. Cubby #${cubby}, just inside the Gallery.`;
+    }
 
     // Typing indicator first
     await sendTypingIndicator(chatId);
     await new Promise(r => setTimeout(r, 800 + Math.random() * 400));
+    await stopTypingIndicator(chatId);
 
     const result = await sendSMS(phone, readyMsg);
-    console.log(`[Proactive] Order ready sent to ${phone}:`, result.ok ? "OK" : result.error);
+    console.log(`[Proactive] Order ready sent to ${label}:`, result.ok ? "OK" : result.error);
 
     // Add to conversation history so Claude knows
-    if (conversationStore[phone]) {
-      conversationStore[phone].push({ role: "assistant", content: readyMsg });
+    const convoKey = isGroup ? `group:${chatId}` : phone;
+    if (conversationStore[convoKey]) {
+      conversationStore[convoKey].push({ role: "assistant", content: readyMsg });
     }
 
     broadcast({
@@ -787,8 +1220,17 @@ function scheduleOrderFollowUp(phone, chatId) {
       body: readyMsg,
       auto: true,
       proactive: true,
+      isGroup,
       sendResult: result,
       timestamp: Date.now(),
+    });
+
+    // Clean up group cubby after delivery
+    if (isGroup) {
+      setTimeout(() => delete groupCubbies[chatId], 30 * 60 * 1000); // clear after 30 min
+    }
+  }, prepTime);
+}
     });
   }, prepTime);
 }
@@ -856,10 +1298,40 @@ app.post("/api/webhook/linqapp", async (req, res) => {
 
   console.log(`[Webhook] Forwarded to ${clients.size} dashboard(s)`);
 
-  // Run the human behavior pipeline
-  handleInboundMessage(payload).catch(err => {
-    console.error("[Pipeline] Error:", err.message);
-  });
+  // Route through appropriate pipeline
+  if (payload.isGroup) {
+    // Group chats: debounce to let conversation settle before responding
+    // Still add to conversation history immediately
+    const convoKey = `group:${payload.chatId}`;
+    const member = memberStore[payload.from] || { tier: "tourist", dailyOrderUsed: false };
+    if (!conversationStore[convoKey]) conversationStore[convoKey] = [];
+
+    const group = groupChats[payload.chatId] || {};
+    const participantCount = group.participants ? group.participants.size : 0;
+    const senderLabel = payload.senderName || member.name || getName(payload.from) || payload.from;
+
+    conversationStore[convoKey].push({
+      role: "user",
+      content: `[GROUP — ${participantCount} people. ${senderLabel} says:] "${payload.body}"`,
+    });
+
+    // Keep history manageable
+    if (conversationStore[convoKey].length > 30) {
+      conversationStore[convoKey] = conversationStore[convoKey].slice(-30);
+    }
+
+    // Debounce — wait for group to stop talking
+    handleGroupDebounce(payload, (finalPayload) => {
+      handleInboundMessage(finalPayload).catch(err => {
+        console.error("[Pipeline] Error:", err.message);
+      });
+    });
+  } else {
+    // DMs: respond immediately
+    handleInboundMessage(payload).catch(err => {
+      console.error("[Pipeline] Error:", err.message);
+    });
+  }
 });
 
 // Normalize Linqapp v3 webhook payload
@@ -867,12 +1339,14 @@ function normalizeInbound(body) {
   // Linqapp v3 format:
   // body.data.sender_handle.handle = "+19789964279"
   // body.data.chat.id = "3cf56637-..."
+  // body.data.chat.is_group = true/false
   // body.data.parts[0].value = "Hey"
   // body.data.chat.owner_handle.handle = "+18607077256"
 
   const data = body.data || {};
   const senderHandle = data.sender_handle || {};
   const chatOwner = (data.chat || {}).owner_handle || {};
+  const chat = data.chat || {};
   const parts = data.parts || [];
 
   // Extract message text from parts array
@@ -882,15 +1356,41 @@ function normalizeInbound(body) {
     .join(" ")
     .trim();
 
+  const senderPhone = cleanPhone(senderHandle.handle || "");
+  const chatId = chat.id || "";
+  const isGroup = chat.is_group || false;
+
+  // Extract sender name from Linqapp data (various possible fields)
+  const senderName = senderHandle.display_name || senderHandle.name ||
+    senderHandle.contact_name || senderHandle.full_name || null;
+
+  // Learn the name if Linqapp provided one
+  if (senderPhone && senderName) {
+    learnName(senderPhone, senderName);
+  }
+
+  // Use stored name if Linqapp didn't provide one
+  const resolvedName = senderName || getName(senderPhone);
+
+  // Track group chat metadata
+  if (chatId) {
+    const group = trackGroupChat(chatId, isGroup, senderPhone);
+    if (isGroup) {
+      console.log(`[Group] Chat ${chatId} — ${group.participants.size} participants, sender: ${resolvedName || senderPhone}`);
+    }
+  }
+
   return {
-    from: cleanPhone(senderHandle.handle || ""),
+    from: senderPhone,
     to: cleanPhone(chatOwner.handle || CONFIG.LINQAPP_PHONE),
     body: messageText,
-    chatId: (data.chat || {}).id || "",
+    chatId,
     messageId: data.id || "",
     service: data.service || "",
     timestamp: data.sent_at || body.created_at || Date.now(),
     eventType: body.event_type || "",
+    isGroup,
+    senderName: resolvedName,
   };
 }
 
@@ -985,6 +1485,69 @@ app.post("/api/contact-card", async (req, res) => {
 
   const result = await shareContactCard(chatId);
   res.json(result);
+});
+
+// Add participant to a group chat
+app.post("/api/group/add", async (req, res) => {
+  const { chatId, phone } = req.body;
+
+  if (!chatId || !phone) {
+    return res.status(400).json({ error: "Missing chatId or phone" });
+  }
+
+  const result = await addParticipant(chatId, phone);
+  res.json(result);
+});
+
+// Join concierge into a group chat
+app.post("/api/group/join", async (req, res) => {
+  const { chatId } = req.body;
+
+  if (!chatId) {
+    return res.status(400).json({ error: "Missing chatId" });
+  }
+
+  const result = await joinGroupChat(chatId);
+  res.json(result);
+});
+
+// Get group chat info
+app.get("/api/group/:chatId", (req, res) => {
+  const group = groupChats[req.params.chatId];
+  if (!group) {
+    return res.status(404).json({ error: "Group not found" });
+  }
+  res.json({
+    isGroup: group.isGroup,
+    participants: Array.from(group.participants).map(p => ({
+      phone: p,
+      name: getName(p) || null,
+      tier: (memberStore[p] || {}).tier || "tourist",
+    })),
+    orders: group.orders,
+  });
+});
+
+// Set or update a member's name
+app.post("/api/members/name", (req, res) => {
+  const { phone, name } = req.body;
+  if (!phone || !name) {
+    return res.status(400).json({ error: "Missing phone or name" });
+  }
+  learnName(cleanPhone(phone), name);
+  res.json({ ok: true, phone: cleanPhone(phone), name });
+});
+
+// Set or update a member's tier
+app.post("/api/members/tier", (req, res) => {
+  const { phone, tier } = req.body;
+  if (!phone || !tier || !["tourist", "envoy"].includes(tier)) {
+    return res.status(400).json({ error: "Missing phone or invalid tier (tourist/envoy)" });
+  }
+  const p = cleanPhone(phone);
+  if (!memberStore[p]) memberStore[p] = { tier, dailyOrderUsed: false };
+  else memberStore[p].tier = tier;
+  res.json({ ok: true, phone: p, tier });
 });
 
 // Health check
