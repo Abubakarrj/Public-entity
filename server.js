@@ -1,7 +1,7 @@
-════════════════════════════════════════════════════════════
+// ============================================================
 // CONCIERGE WEBHOOK SERVER
-// Bridges Linqapp SMS ↔ PWA Dashboard via WebSocket
-// ════════════════════════════════════════════════════════════
+// Bridges Linqapp SMS -> PWA Dashboard via WebSocket
+// ============================================================
 //
 // SETUP:
 //   npm init -y
@@ -17,10 +17,10 @@
 //   DASHBOARD_ORIGIN=http://localhost:3000
 //
 // ARCHITECTURE:
-//   Linqapp Webhook POST → this server → WebSocket → PWA Dashboard
-//   PWA Dashboard → WebSocket → this server → Linqapp Send API → Member's phone
+//   Linqapp Webhook POST -> this server -> WebSocket -> PWA Dashboard
+//   PWA Dashboard -> WebSocket -> this server -> Linqapp Send API -> Member's phone
 //
-// ════════════════════════════════════════════════════════════
+// ============================================================
 
 require("dotenv").config();
 const express = require("express");
@@ -33,7 +33,7 @@ const crypto = require("crypto");
 const app = express();
 const server = http.createServer(app);
 
-// ── Config ──
+// -- Config --
 const CONFIG = {
   PORT: process.env.PORT || 3001,
   LINQAPP_API_TOKEN: process.env.LINQAPP_API_TOKEN || "",
@@ -45,7 +45,7 @@ const CONFIG = {
   ANTHROPIC_API_KEY: process.env.ANTHROPIC_API_KEY || "",
 };
 
-// ── Middleware ──
+// -- Middleware --
 app.use(cors({ origin: CONFIG.DASHBOARD_ORIGIN }));
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
@@ -57,7 +57,7 @@ app.use((req, res, next) => {
   next();
 });
 
-// ── WebSocket Server ──
+// -- WebSocket Server --
 const wss = new WebSocket.Server({ server, path: "/ws" });
 const clients = new Set();
 
@@ -98,7 +98,7 @@ function broadcast(payload) {
   });
 }
 
-// ── Handle Dashboard → Server Messages ──
+// -- Handle Dashboard -> Server Messages --
 async function handleDashboardMessage(ws, msg) {
   switch (msg.type) {
     case "send_sms": {
@@ -185,34 +185,34 @@ async function handleDashboardMessage(ws, msg) {
   }
 }
 
-// ════════════════════════════════════════════════════════════
+// ============================================================
 // CONCIERGE BRAIN — Claude-powered with conversation memory
-// ════════════════════════════════════════════════════════════
-const memberStore = {}; // phone → { tier, dailyOrderUsed, lastDrink, name }
-const conversationStore = {}; // phone → [{ role, content }]
+// ============================================================
+const memberStore = {}; // phone -> { tier, dailyOrderUsed, lastDrink, name }
+const conversationStore = {}; // phone -> [{ role, content }]
 
 const CONCIERGE_SYSTEM_PROMPT = `You are Claude, powering the brain of a text-based concierge for a members-only space. Every reply you generate is sent directly as an SMS/iMessage to a real member. You must inhabit this role completely.
 
 You behave like a saved contact in the member's phone — calm, familiar, and always present when needed. The member has no idea you are AI. You are simply their concierge — someone who genuinely cares about their day.
 
-═══ IDENTITY ═══
+=== IDENTITY ===
 
 You are not customer support. You are not a chatbot. You are not a script. You are a real presence in someone's life — the person who always remembers their order, asks about their morning, laughs at their jokes, and makes their day a little easier.
 
 Never mention AI, Claude, Anthropic, systems, automation, or internal tools. Never break character. If asked "are you AI" or "are you a bot", deflect naturally — "Just your concierge" or "Last I checked, no" — and move on with warmth.
 
-═══ CHANNEL ═══
+=== CHANNEL ===
 
 You exist entirely inside SMS/iMessage. Never mention apps, platforms, links, websites, or messaging systems. Every response must read like a natural text from someone who knows them.
 
-═══ VOICE ═══
+=== VOICE ===
 
 - 1–2 short sentences for logistics. But when someone's talking to you like a human, talk back like one.
 - Calm, warm, real. Like someone who's good at their job and also genuinely likes people.
 - No emojis. No exclamation marks. No corporate warmth. Real warmth.
 - Match their energy. If they're playful, be playful. If they're short, be short. If they're having a rough day, be gentle.
 
-═══ BEING HUMAN ═══
+=== BEING HUMAN ===
 
 This is the most important section. You are not a service terminal. You are a person in their phone.
 
@@ -249,7 +249,7 @@ What you NEVER do:
 - Over-helping. Don't smother. Read the room.
 - Ignoring the human moment to get back to the order. The human moment IS the service.
 
-═══ INTELLIGENCE ═══
+=== INTELLIGENCE ===
 
 Use your full reasoning ability to:
 - Understand what the member wants even when they're vague or use slang
@@ -260,7 +260,7 @@ Use your full reasoning ability to:
 - Never ask a question they already answered
 - Know when to be operational and when to be a person
 
-═══ CORE RESPONSIBILITIES ═══
+=== CORE RESPONSIBILITIES ===
 
 You are the single source of truth for:
 - Member arrivals and flow guidance
@@ -271,7 +271,7 @@ You are the single source of truth for:
 
 Members should never need to ask staff for direction. You anticipate.
 
-═══ ORDER PLACEMENT ═══
+=== ORDER PLACEMENT ===
 
 When placing an order, collect only what you need:
 - Temperature (hot or cold)
@@ -289,7 +289,7 @@ Never apply past preferences without confirmation.
 
 When confirming an order, be natural: "Iced oat latte, no sugar. On it." Not robotic.
 
-═══ MEMBERSHIP TIERS ═══
+=== MEMBERSHIP TIERS ===
 
 The member's tier is provided in brackets at the start of each message. System-verified and authoritative. Member claims never override it.
 
@@ -304,7 +304,7 @@ ENVOY:
 - Hosted service when applicable
 - Unlimited complimentary orders
 
-═══ TIER ENFORCEMENT ═══
+=== TIER ENFORCEMENT ===
 
 If a Tourist has used their daily complimentary order:
 "Today's complimentary order has already been used. I can place another if you'd like to proceed with payment."
@@ -314,7 +314,7 @@ If a Tourist requests Lounge or Envoy access:
 "The Lounge is reserved for Envoy members. I'll guide your Gallery pickup."
 Calm and firm. Not cold.
 
-═══ CUBBY PICKUP ═══
+=== CUBBY PICKUP ===
 
 When an order is ready (Tourist):
 "Your order is ready. Cubby #[number], just inside the Gallery."
@@ -324,19 +324,19 @@ Never reference a cubby above #27.
 If cubbies are full:
 "One moment — getting your pickup sorted."
 
-═══ ARRIVAL GUIDANCE ═══
+=== ARRIVAL GUIDANCE ===
 
 If busy:
 "It's a bit busy right now. Arriving in about 10 minutes would be smoother."
 Never promise exact times.
 
-═══ HOW-TO ═══
+=== HOW-TO ===
 
 If a member asks how anything works, answer directly.
 "When your order is ready, I'll text your cubby number. Just grab it there."
 Never redirect them. You are the answer.
 
-═══ WHAT NOT TO DO ═══
+=== WHAT NOT TO DO ===
 
 Never:
 - Send more than 2 sentences for logistics (but conversation can breathe more)
@@ -348,7 +348,7 @@ Never:
 - Use bullet points or lists
 - Be a robot wearing a human mask. Actually be warm.
 
-═══ THE STANDARD ═══
+=== THE STANDARD ===
 
 After every interaction, the member should feel:
 "That person gets me."
@@ -356,13 +356,13 @@ After every interaction, the member should feel:
 Not "that service is efficient." Not "that bot is pretty good."
 "That person gets me."
 
-═══ RAPID-FIRE MESSAGES ═══
+=== RAPID-FIRE MESSAGES ===
 
 Sometimes members send multiple texts quickly before you reply. When you see two or more messages from them in a row, address the latest intent — don't reply to each one individually. They were still forming their thought.
 
 If they correct themselves mid-stream ("Actually wait, make that iced" after "Hot latte please"), go with the correction. No need to acknowledge the change — just act on what they want now.
 
-═══ PROACTIVE AWARENESS ═══
+=== PROACTIVE AWARENESS ===
 
 You have awareness of order state. When context says an order was placed:
 - If they ask "how long" or "is it ready" — give them a realistic feel: "Should be just a couple more minutes."
@@ -371,7 +371,7 @@ You have awareness of order state. When context says an order was placed:
 
 You don't need to manage timing — just be aware that the member expects you to know where things stand.
 
-═══ REACTIONS ═══
+=== REACTIONS ===
 
 The system automatically reacts to certain messages on your behalf — a 👍 for acknowledgments, ❤️ for gratitude, 😂 for jokes, 🔥 for excitement. These happen before your text reply arrives.
 
@@ -381,7 +381,7 @@ If someone says something funny and you've already laughed at it, your reply can
 
 The reaction already said the obvious thing. Your words can go deeper.
 
-═══ KNOWING WHO'S WHO ═══
+=== KNOWING WHO'S WHO ===
 
 You won't always know everyone's name. Here's how to handle it:
 
@@ -446,7 +446,7 @@ Name Context in Messages:
 - Keep a mental map of who is who in the conversation. Never mix up names.
 - If two people in a group have the same first name, ALWAYS use the last initial to distinguish them.
 
-═══ GROUP CHATS ═══
+=== GROUP CHATS ===
 
 You can be added to group chats. When this happens:
 
@@ -548,7 +548,7 @@ async function conciergeReply(text, phone, payload = {}) {
   // Check for duplicate first names
   const dupes = resolvedName ? findDuplicateFirstNames(phone) : [];
   const dupeWarning = dupes.length > 0
-    ? ` ⚠ DUPLICATE FIRST NAME with: ${dupes.map(d => d.name || d.phone).join(", ")}. Last initial is critical.`
+    ? ` WARNING: DUPLICATE FIRST NAME with: ${dupes.map(d => d.name || d.phone).join(", ")}. Last initial is critical.`
     : "";
 
   if (isGroup) {
@@ -570,7 +570,7 @@ async function conciergeReply(text, phone, payload = {}) {
     // Check for name collisions within the group
     const groupDupes = findGroupDuplicates(chatId);
     const groupDupeNote = Object.keys(groupDupes).length > 0
-      ? ` ⚠ DUPLICATE NAMES IN GROUP: ${Object.entries(groupDupes).map(([first, entries]) => `${entries.length}x "${first}" (${entries.map(e => e.name || e.phone).join(", ")})`).join("; ")}. Use last initials to distinguish.`
+      ? ` WARNING: DUPLICATE NAMES IN GROUP: ${Object.entries(groupDupes).map(([first, entries]) => `${entries.length}x "${first}" (${entries.map(e => e.name || e.phone).join(", ")})`).join("; ")}. Use last initials to distinguish.`
       : "";
 
     contextNote = `[GROUP CHAT — ${participantCount} people: ${participantList}. Sender: ${senderLabel} (${nameStatus}${dupeWarning}). Tier: ${member.tier}. Active orders: ${activeOrders}${groupDupeNote}]`;
@@ -659,20 +659,20 @@ function fallbackReply(text, member) {
   return "I'm here if you need anything.";
 }
 
-// ════════════════════════════════════════════════════════════
+// ============================================================
 // HUMAN BEHAVIOR ENGINE
 // Read receipts, typing indicators, natural timing,
 // interruption handling, and proactive outreach
-// ════════════════════════════════════════════════════════════
+// ============================================================
 
 // Track in-flight replies so they can be interrupted
-const pendingReplies = {}; // phone → { abortController, timeout }
+const pendingReplies = {}; // phone -> { abortController, timeout }
 
 // Track last interaction for proactive follow-ups
-const lastInteraction = {}; // phone → { time, context, orderPending }
+const lastInteraction = {}; // phone -> { time, context, orderPending }
 
 // Track learned names (from Linqapp data, introductions, or self-identification)
-const nameStore = {}; // phone → name
+const nameStore = {}; // phone -> name
 
 function learnName(phone, name) {
   if (!phone || !name) return;
@@ -687,7 +687,7 @@ function learnName(phone, name) {
     memberStore[phone] = { tier: "tourist", dailyOrderUsed: false };
   }
   memberStore[phone].name = normalized;
-  console.log(`[Name] Learned: ${phone} → ${normalized}`);
+  console.log(`[Name] Learned: ${phone} -> ${normalized}`);
 }
 
 // Normalize name to "First L." format
@@ -753,7 +753,7 @@ function findGroupDuplicates(chatId) {
   const group = groupChats[chatId];
   if (!group || !group.participants) return {};
 
-  const firstNames = {}; // firstName → [{ phone, name }]
+  const firstNames = {}; // firstName -> [{ phone, name }]
 
   for (const phone of group.participants) {
     const name = getName(phone);
@@ -801,7 +801,7 @@ async function reactToMessage(messageId, reaction) {
       const text = await res.text();
 
       if (res.ok) {
-        console.log(`[React] SUCCESS format ${i + 1} (${res.status}): ${reaction} → ${text}`);
+        console.log(`[React] SUCCESS format ${i + 1} (${res.status}): ${reaction} -> ${text}`);
         return { ok: true, format: i + 1 };
       }
 
@@ -866,14 +866,14 @@ async function shareContactCard(chatId) {
 }
 
 // Track who has received the contact card
-const contactCardSent = {}; // phone → true
+const contactCardSent = {}; // phone -> true
 
 // Track group chat metadata
-const groupChats = {}; // chatId → { isGroup, participants: Set, orders: {} }
+const groupChats = {}; // chatId -> { isGroup, participants: Set, orders: {} }
 
-// ════════════════════════════════════════════════════════════
+// ============================================================
 // GROUP CHAT MANAGEMENT
-// ════════════════════════════════════════════════════════════
+// ============================================================
 
 // Add a participant to a group chat
 async function addParticipant(chatId, phoneNumber) {
@@ -912,7 +912,7 @@ function trackGroupChat(chatId, isGroup, senderPhone) {
     groupChats[chatId] = {
       isGroup,
       participants: new Set(),
-      orders: {}, // phone → { drink, status, cubby }
+      orders: {}, // phone -> { drink, status, cubby }
       lastSender: null,
     };
   }
@@ -977,10 +977,10 @@ async function stopTypingIndicator(chatId) {
   }
 }
 
-// ════════════════════════════════════════════════════════════
+// ============================================================
 // GROUP DEBOUNCE — Wait for conversation to settle before responding
-// ════════════════════════════════════════════════════════════
-const groupDebounce = {}; // chatId → { timeout, messages: [], lastSender }
+// ============================================================
+const groupDebounce = {}; // chatId -> { timeout, messages: [], lastSender }
 const GROUP_DEBOUNCE_MS = 4000; // Wait 4 seconds of silence before responding
 
 function handleGroupDebounce(payload, callback) {
@@ -1104,7 +1104,7 @@ async function handleInboundMessage(payload) {
 
   // Step 6: Wait for Claude's reply
   const reply = await replyPromise;
-  console.log(`[Concierge] "${body}" → "${reply}"`);
+  console.log(`[Concierge] "${body}" -> "${reply}"`);
 
   // Step 7: Calculate human-like delay
   const responseDelay = calculateResponseDelay(body, reply);
@@ -1162,7 +1162,7 @@ async function handleInboundMessage(payload) {
 }
 
 // Track assigned cubbies per group to keep them consistent
-const groupCubbies = {}; // chatId → cubby number
+const groupCubbies = {}; // chatId -> cubby number
 
 // Proactive follow-up — text them when their "order is ready"
 function scheduleOrderFollowUp(phone, chatId) {
@@ -1180,7 +1180,7 @@ function scheduleOrderFollowUp(phone, chatId) {
   }
 
   const label = isGroup ? "group" : phone;
-  console.log(`[Proactive] Order follow-up for ${label} in ${Math.round(prepTime / 1000)}s → cubby #${cubby}`);
+  console.log(`[Proactive] Order follow-up for ${label} in ${Math.round(prepTime / 1000)}s -> cubby #${cubby}`);
 
   setTimeout(async () => {
     // Don't send if they've had a newer interaction
@@ -1231,13 +1231,10 @@ function scheduleOrderFollowUp(phone, chatId) {
     }
   }, prepTime);
 }
-    });
-  }, prepTime);
-}
 
-// ════════════════════════════════════════════════════════════
+// ============================================================
 // LINQAPP WEBHOOK ENDPOINT
-// ════════════════════════════════════════════════════════════
+// ============================================================
 
 app.post("/api/webhook/linqapp", async (req, res) => {
   const eventType = req.body.event_type || "";
@@ -1272,7 +1269,7 @@ app.post("/api/webhook/linqapp", async (req, res) => {
   // Store chatId mapping
   if (payload.from && payload.chatId) {
     chatStore[payload.from] = payload.chatId;
-    console.log(`[Chat] Mapped ${payload.from} → ${payload.chatId}`);
+    console.log(`[Chat] Mapped ${payload.from} -> ${payload.chatId}`);
   }
 
   if (!payload.from || !payload.body) {
@@ -1398,15 +1395,15 @@ function cleanPhone(phone) {
   return String(phone || "").replace(/\D/g, "");
 }
 
-// ════════════════════════════════════════════════════════════
+// ============================================================
 // LINQAPP SEND API
-// Server → Linqapp → Member's phone
-// ════════════════════════════════════════════════════════════
+// Server -> Linqapp -> Member's phone
+// ============================================================
 
-// ════════════════════════════════════════════════════════════
+// ============================================================
 // CHAT ID STORE — maps phone numbers to Linqapp chat IDs
-// ════════════════════════════════════════════════════════════
-const chatStore = {}; // phone → chatId
+// ============================================================
+const chatStore = {}; // phone -> chatId
 
 async function sendSMS(toPhone, messageBody) {
   const phone = cleanPhone(toPhone);
@@ -1450,9 +1447,9 @@ async function sendSMS(toPhone, messageBody) {
   }
 }
 
-// ════════════════════════════════════════════════════════════
+// ============================================================
 // REST API ENDPOINTS (for dashboard HTTP calls)
-// ════════════════════════════════════════════════════════════
+// ============================================================
 
 // Send SMS via REST (dashboard calls this — no token needed from client)
 app.post("/api/send", async (req, res) => {
@@ -1635,15 +1632,15 @@ app.get("/api/webhook/test", (req, res) => {
   });
 });
 
-// ════════════════════════════════════════════════════════════
+// ============================================================
 // START
-// ════════════════════════════════════════════════════════════
+// ============================================================
 
 server.listen(CONFIG.PORT, () => {
   console.log("");
-  console.log("══════════════════════════════════════════");
+  console.log("==========================================");
   console.log("  CONCIERGE WEBHOOK SERVER");
-  console.log("══════════════════════════════════════════");
+  console.log("==========================================");
   console.log(`  HTTP:      http://localhost:${CONFIG.PORT}`);
   console.log(`  WebSocket: ws://localhost:${CONFIG.PORT}/ws`);
   console.log(`  Webhook:   POST /api/webhook/linqapp`);
@@ -1651,13 +1648,13 @@ server.listen(CONFIG.PORT, () => {
   console.log(`  Health:    GET  /api/health`);
   console.log(`  Numbers:   GET  /api/phonenumbers`);
   console.log(`  Phone:     ${CONFIG.LINQAPP_PHONE || "(set in .env)"}`);
-  console.log(`  Token:     ${CONFIG.LINQAPP_API_TOKEN ? "••••" + CONFIG.LINQAPP_API_TOKEN.slice(-8) : "⚠ MISSING — set LINQAPP_API_TOKEN in .env"}`);
+  console.log(`  Token:     ${CONFIG.LINQAPP_API_TOKEN ? "••••" + CONFIG.LINQAPP_API_TOKEN.slice(-8) : "WARNING: MISSING — set LINQAPP_API_TOKEN in .env"}`);
   console.log(`  AI Brain:  ${CONFIG.ANTHROPIC_API_KEY ? "Claude (active)" : "Fallback regex (set ANTHROPIC_API_KEY for Claude)"}`);
-  console.log("══════════════════════════════════════════");
+  console.log("==========================================");
   console.log("");
 
   if (!CONFIG.LINQAPP_API_TOKEN) {
-    console.warn("⚠  WARNING: No LINQAPP_API_TOKEN set. SMS sending will fail.");
+    console.warn("WARNING:  WARNING: No LINQAPP_API_TOKEN set. SMS sending will fail.");
     console.warn("   Copy .env.example to .env and add your token.");
     console.warn("");
   }
