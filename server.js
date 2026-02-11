@@ -328,79 +328,55 @@ async function sendSMS(toPhone, messageBody) {
   }
 
   const url = `${CONFIG.LINQAPP_SEND_URL}/${chatId}/messages`;
+  const headers = {
+    "Content-Type": "application/json",
+    Authorization: `Bearer ${CONFIG.LINQAPP_API_TOKEN}`,
+  };
 
   console.log(`[SMS] Sending to ${phone} (chat: ${chatId}): "${messageBody}"`);
 
-  try {
-    const res = await fetch(url, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${CONFIG.LINQAPP_API_TOKEN}`,
-      },
-      body: JSON.stringify({
-        parts: [{ type: "text", value: messageBody }],
-      }),
-    });
+  // Try multiple body formats — Linqapp v3 API
+  const bodyFormats = [
+    // Format 1: parts array at root
+    { parts: [{ type: "text", value: messageBody }] },
+    // Format 2: text field
+    { text: messageBody },
+    // Format 3: body field
+    { body: messageBody },
+    // Format 4: message field
+    { message: messageBody },
+    // Format 5: content with parts
+    { content: { parts: [{ type: "text", value: messageBody }] } },
+    // Format 6: just parts with string
+    { parts: [{ type: "text", text: messageBody }] },
+    // Format 7: message with parts
+    { message: { parts: [{ type: "text", value: messageBody }] } },
+  ];
 
-    const responseText = await res.text();
-    let responseData;
+  for (let i = 0; i < bodyFormats.length; i++) {
     try {
-      responseData = JSON.parse(responseText);
-    } catch {
-      responseData = { raw: responseText };
-    }
-
-    if (res.ok) {
-      console.log(`[SMS] Sent OK (${res.status}) to ${phone}`);
-      return { ok: true, status: res.status, data: responseData };
-    }
-
-    console.warn(`[SMS] Failed (${res.status}):`, responseText);
-
-    // Try simpler body format
-    if (res.status >= 400) {
-      console.log("[SMS] Retrying with simple message body...");
-      const retryRes = await fetch(url, {
+      console.log(`[SMS] Attempt ${i + 1}: ${JSON.stringify(bodyFormats[i])}`);
+      const res = await fetch(url, {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${CONFIG.LINQAPP_API_TOKEN}`,
-        },
-        body: JSON.stringify({ message: messageBody }),
+        headers,
+        body: JSON.stringify(bodyFormats[i]),
       });
 
-      const retryText = await retryRes.text();
-      if (retryRes.ok) {
-        console.log(`[SMS] Sent OK with simple body (${retryRes.status})`);
-        return { ok: true, status: retryRes.status };
+      const responseText = await res.text();
+
+      if (res.ok) {
+        console.log(`[SMS] SUCCESS with format ${i + 1} (${res.status}): ${responseText}`);
+        return { ok: true, status: res.status, format: i + 1 };
       }
 
-      // Try POST to /chats directly with phone
-      console.log("[SMS] Retrying with POST to /chats...");
-      const fallbackRes = await fetch(CONFIG.LINQAPP_SEND_URL, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${CONFIG.LINQAPP_API_TOKEN}`,
-        },
-        body: JSON.stringify({ phone, message: messageBody }),
-      });
-
-      if (fallbackRes.ok) {
-        console.log(`[SMS] Sent OK via /chats fallback (${fallbackRes.status})`);
-        return { ok: true, status: fallbackRes.status, via: "chats-fallback" };
-      }
-
-      console.error("[SMS] All attempts failed");
-      return { ok: false, status: res.status, error: responseText };
+      console.log(`[SMS] Format ${i + 1} failed (${res.status}): ${responseText}`);
+    } catch (err) {
+      console.error(`[SMS] Format ${i + 1} network error:`, err.message);
     }
-
-    return { ok: false, status: res.status, error: responseText };
-  } catch (err) {
-    console.error("[SMS] Network error:", err.message);
-    return { ok: false, error: err.message };
   }
+
+  console.error("[SMS] All formats failed");
+  return { ok: false, error: "All message formats rejected" };
 }
 
 // ════════════════════════════════════════════════════════════
