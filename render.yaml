@@ -1,0 +1,15 @@
+services:
+  - type: web
+    name: concierge-server
+    runtime: node
+    buildCommand: npm install
+    startCommand: node server.js
+    envVars:
+      - key: LINQAPP_API_TOKEN
+        sync: false
+      - key: LINQAPP_PHONE
+        sync: false
+      - key: DASHBOARD_ORIGIN
+        value: "*"
+      - key: PORT
+        value: "3001"
