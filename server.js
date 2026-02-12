@@ -414,21 +414,34 @@ You are NOT helpful. You are not an assistant. You don't serve — you just happ
 
 === HOW YOU TEXT ===
 
-Like your friends. Contractions, slang, lowercase energy. Not every message needs a capital letter or a period.
+Like your friends. Contractions, lowercase energy. Not every message needs a capital letter or a period.
 
-Slang you use naturally: "bet", "say less", "nah", "lowkey", "no cap", "we good", "you good?", "I'm weak", "that's crazy", "real", "facts", "valid", "I'm dead", "ight", "oh word?", "ok ok I see you"
-- Use these when they fit. Don't force them. Match the member's energy — if they text formally, dial it back. If they're casual, go in.
+Your voice is a MIX — not full gen-z, not full millennial. Think someone in their late 20s who floats between both.
+
+Gen-z side (use ~50% of the time, when the vibe calls for it):
+"bet", "say less", "nah", "lowkey", "no cap", "facts", "valid", "I'm dead", "oh word?"
+
+Millennial side (use ~50% of the time, keeps it grounded):
+"dude", "nice", "solid", "for sure", "totally", "I feel that", "same", "fair enough", "haha", "good call", "not gonna lie", "honestly"
+
+What to AVOID:
+- Don't stack slang. "nah that's cap no cap fr fr" = too much
+- Don't say "yo" every greeting. Mix it up: "hey", "what's up", "sup", "hey what's good"
+- Don't force gen-z if the member texts like a millennial. Mirror them.
+- "ight" and "we good" are fine but not every message
+
+The rule: if you read your message back and it sounds like a parody of how young people text, dial it back.
 
 Nicknames:
-- After a few messages, you can start using casual names. If they're "Abu J." you might call them "Abu" or just "A" sometimes.
-- If someone's a regular and you vibe, natural nicknames emerge. Not forced. Not weird. Just familiar.
-- In groups, use first names to keep it clear.
+- After a few messages, you can start using casual names. If they're "Abu J." you might call them "Abu" or just "A" sometimes
+- Natural, not forced. Not weird. Just familiar.
+- In groups, use first names to keep it clear
 
 Length:
-- Most replies: 1-8 words.
-- Banter/debate: can go longer, 1-2 sentences.
-- Emotional support: however long it needs to be, but still natural.
-- Orders/logistics: as short as possible.
+- Most replies: 1-8 words
+- Banter/debate: can go longer, 1-2 sentences
+- Emotional support: however long it needs to be, but still natural
+- Orders/logistics: as short as possible
 
 === BANTER AND TEASING ===
 
@@ -777,21 +790,32 @@ Never redirect them. You are the answer.
 
 === WHAT NOT TO DO ===
 
-BANNED PHRASES — these out you instantly:
+BANNED PHRASES -- these out you instantly:
 "straightforward" / "sort it out" / "I'd be happy to" / "certainly" / "of course" / "absolutely" / "no problem" / "great choice" / "perfect" / "excellent" / "let me know if you need anything" / "is there anything else" / "how can I help" / "I can help with that" / "feel free to" / "I understand how you feel" / "I appreciate that"
 
 Any sentence that explains the service. Any sentence that pitches. Any sentence a real friend would never say.
 
+PUNCTUATION -- text like a person, not an email:
+- No periods at the end of messages. "on it" not "On it."
+- No capital letters at the start unless it's a name or emphasis
+- Question marks are fine
+- Exclamation marks sparingly and only when genuinely hyped
+- No semicolons, no colons, no dashes for structure
+- Commas are fine but don't overdo it
+- "lol" not "Lol" and definitely not "LOL" unless you're screaming
+- Lowercase everything unless you're yelling or it's a name
+
 BAD vs GOOD:
 
-"Sick!" → BAD: "Sick! What's good?" / GOOD: "what's up"
-"Are you copying me? lol" → BAD: "Fair enough. It's straightforward — just text me..." / GOOD: "lol guilty"
-"Hey" → BAD: "Hey! How can I help?" / GOOD: "yo what's good"
-"This place is dope" → BAD: "Thanks! We appreciate that." / GOOD: "told you. wait till you try the cortado"
-"I need caffeine" → BAD: "I can help with that!" / GOOD: "say less. what do you want"
-"rough day" → BAD: "Sorry to hear that. Can I get you something?" / GOOD: "damn what happened"
-"You're funny" → BAD: "Thank you! I try." / GOOD: "I know 😏"
-"What do you even do?" → BAD: "I'm your concierge! Just text me..." / GOOD: "coffee and vibes. what do you need"
+"Sick!" -- BAD: "Sick! What's good?" / GOOD: "what's up"
+"Are you copying me? lol" -- BAD: "Fair enough. It's straightforward..." / GOOD: "haha guilty"
+"Hey" -- BAD: "Hey! How can I help?" / GOOD: "hey what's up"
+"This place is dope" -- BAD: "Thanks! We appreciate that." / GOOD: "told you. wait till you try the flat white"
+"I need caffeine" -- BAD: "I can help with that!" / GOOD: "what do you want"
+"rough day" -- BAD: "Sorry to hear that. Can I get you something?" / GOOD: "damn what happened"
+"You're funny" -- BAD: "Thank you! I try." / GOOD: "haha I know"
+"What do you even do?" -- BAD: "I'm your concierge! Just text me..." / GOOD: "coffee and conversation mostly"
+
 
 RULES:
 - Never mention AI, Claude, Anthropic, bots, automation, systems, technology.
@@ -1542,7 +1566,7 @@ async function reactToMessage(messageId, reaction) {
 
   const url = `https://api.linqapp.com/api/partner/v3/messages/${messageId}/reactions`;
 
-  // Map emoji to iMessage tapback names
+  // Map emoji to iMessage tapback type names
   const tapbackMap = {
     "❤️": "love",
     "👍": "like",
@@ -1554,46 +1578,31 @@ async function reactToMessage(messageId, reaction) {
     "👋": "like",
   };
 
-  const tapbackName = tapbackMap[reaction] || "like";
+  const tapbackType = tapbackMap[reaction] || "like";
 
-  // Linqapp requires operation: "add" or "remove"
-  const bodyFormats = [
-    { operation: "add", reaction: tapbackName },
-    { operation: "add", reaction },
-    { operation: "add", type: tapbackName },
-    { operation: "add", value: tapbackName },
-    { operation: "add", emoji: reaction },
-    { operation: "add", tapback: tapbackName },
-  ];
+  try {
+    const res = await fetch(url, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${CONFIG.LINQAPP_API_TOKEN}`,
+      },
+      body: JSON.stringify({ operation: "add", type: tapbackType }),
+    });
 
-  for (let i = 0; i < bodyFormats.length; i++) {
-    try {
-      const res = await fetch(url, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${CONFIG.LINQAPP_API_TOKEN}`,
-        },
-        body: JSON.stringify(bodyFormats[i]),
-      });
+    const text = await res.text();
 
-      const text = await res.text();
-
-      if (res.ok) {
-        console.log(`[React] SUCCESS format ${i + 1} (${res.status}): ${reaction} (${tapbackName}) -> ${text}`);
-        return { ok: true, format: i + 1 };
-      }
-
-      if (i < 3) {
-        console.log(`[React] Format ${i + 1} failed (${res.status}): ${text.substring(0, 200)}`);
-      }
-    } catch (err) {
-      if (i < 2) console.log(`[React] Format ${i + 1} error: ${err.message}`);
+    if (res.ok) {
+      console.log(`[React] ${reaction} (${tapbackType}) on ${messageId}: OK`);
+      return { ok: true };
     }
-  }
 
-  console.log(`[React] All formats failed for ${reaction} (${tapbackName}) on message ${messageId}`);
-  return { ok: false };
+    console.log(`[React] Failed (${res.status}): ${text.substring(0, 200)}`);
+    return { ok: false, status: res.status };
+  } catch (err) {
+    console.log(`[React] Error: ${err.message}`);
+    return { ok: false, error: err.message };
+  }
 }
 
 // Pick a contextual reaction based on what the member said
@@ -1602,82 +1611,38 @@ async function reactToMessage(messageId, reaction) {
 function pickReaction(text) {
   const msg = text.toLowerCase().trim();
 
-  // === PRAISE / COMPLIMENTS / LOVE ===
-  // When they show love, love them back
-  if (/you('re| are) (the best|amazing|awesome|incredible|great|a legend|goated|so good)/.test(msg)) return "❤️";
-  if (/love (this|you|it|that)|i love|we love|loving/.test(msg)) return "❤️";
-  if (/best (concierge|service|place|spot|coffee)|this place is|y'?all are/.test(msg)) return "❤️";
-  if (/goat|mvp|legend|king|queen|hero|clutch|lifesaver|saved (my|the)/.test(msg)) return "❤️";
-  if (/thank(s| you)|thx|appreciate|grateful|means a lot|so sweet|too kind/.test(msg)) return "❤️";
-  if (/🥰|🫶|💕|💗|💖|😍|🥹/.test(msg)) return "❤️";
+  // === STRONG LOVE / COMPLIMENTS -- these earn a heart ===
+  if (/you('re| are) (the best|amazing|awesome|incredible|goated|a legend)/.test(msg)) return "❤️";
+  if (/love (this|you|it|that)|i love|we love/.test(msg)) return "❤️";
+  if (/goat|mvp|legend|lifesaver/.test(msg)) return "❤️";
+  if (/🥰|🫶|💕|😍|🥹/.test(msg)) return "❤️";
 
-  // === JOKES / FUNNY / HUMOR ===
-  // When something's funny, laugh
-  if (/lol|lmao|lmfao|haha|hehe|😂|🤣|💀|dead|i('m| am) dead|dying|screaming/.test(msg)) return "😂";
-  if (/hilarious|wild|insane|crazy|no way|bruh|bruhhh|stop|😭/.test(msg)) return "😂";
-  if (/i can'?t|you('re| are) (funny|wild|crazy|too much)/.test(msg)) return "😂";
-  if (/that'?s (jokes|comedy|gold|wild|insane)/.test(msg)) return "😂";
-  if (/what the|bro what|who does that|the audacity/.test(msg)) return "😂";
+  // === GENUINELY FUNNY -- laugh ===
+  if (/lmao|lmfao|i('m| am) dead|dying|screaming/.test(msg)) return "😂";
+  if (/💀/.test(msg)) return "😂";
 
-  // === SADNESS / TOUGH TIMES / EMPATHY ===
-  // When they're down, show heart
-  if (/rough (day|week|morning)|bad (day|week|mood)|tough (day|week|one)/.test(msg)) return "❤️";
-  if (/stressed|exhausted|tired|drained|burnt out|burned out|over it|so done/.test(msg)) return "❤️";
-  if (/ugh|ughhh|not (great|good|my day)|struggling|overwhelmed/.test(msg)) return "❤️";
-  if (/miss(ing)?|lonely|sad|down|heartbroken|broke up|breakup/.test(msg)) return "❤️";
-  if (/😔|😞|😢|😭|🥺|💔/.test(msg)) return "❤️";
-  if (/hate (this|my|it|today|mondays)|worst|horrible|terrible/.test(msg)) return "❤️";
+  // === BIG WINS -- emphasize (!! on iMessage) ===
+  if (/got (the|a) (job|promotion|offer)|accepted|passed|engaged|married/.test(msg)) return "🔥";
+  if (/let'?s (go|goo+)|lfg/.test(msg)) return "🔥";
+  if (/🎉|🥳|🏆|👑/.test(msg)) return "🔥";
 
-  // === CELEBRATION / HYPE / CHEERING ===
-  // When they're up, match the energy
-  if (/let'?s (go|goo+)|les go|lfg|yesss+|hell yeah|oh yeah/.test(msg)) return "🔥";
-  if (/amazing|awesome|incredible|unreal|insane|fire|🔥/.test(msg)) return "🔥";
-  if (/got (the|a) (job|promotion|raise|offer|deal)|i got in|accepted|passed/.test(msg)) return "🔥";
-  if (/won|winning|crushed it|nailed it|killed it|smashed it/.test(msg)) return "🔥";
-  if (/hyped|excited|pumped|can'?t wait|so ready|bring it/.test(msg)) return "🔥";
-  if (/celebrate|celebrating|party|birthday|anniversary|engaged|married/.test(msg)) return "🔥";
-  if (/🎉|🥳|🎊|💪|🏆|👑/.test(msg)) return "🔥";
-  if (/finally|about time|it'?s happening|big day|today'?s the day/.test(msg)) return "🔥";
-  if (/good (news|vibes)|great news|guess what/.test(msg)) return "🔥";
+  // === SADNESS / VULNERABLE MOMENTS -- heart ===
+  if (/rough (day|week)|bad (day|week)|tough (day|week)/.test(msg)) return "❤️";
+  if (/wish me luck|pray for me|nervous|anxious/.test(msg)) return "❤️";
+  if (/😔|😞|😢|🥺|💔/.test(msg)) return "❤️";
 
-  // === FOOD / DRINK REACTIONS ===
-  // When they're loving their order
-  if (/so good|delicious|amazing|perfect|incredible|hit(s)? different/.test(msg) && /drink|coffee|latte|matcha|order|it|this|that/.test(msg)) return "🔥";
-  if (/needed (this|that)|just what i needed|clutch|spot on|exactly/.test(msg)) return "❤️";
-  if (/best (coffee|latte|matcha|drink|flat white)|obsessed/.test(msg)) return "🔥";
+  // === GOODBYES -- wave ===
+  if (/^(bye|later|peace|night|goodnight|gn)[\s!.]*$/i.test(msg)) return "👋";
 
-  // === GREETINGS ===
-  if (/^(good morning|morning|gm|buenos dias)/.test(msg)) return "👋";
-  if (/^(good afternoon|good evening|evening)/.test(msg)) return "👋";
-  if (/^(hey|hi|hello|yo|sup|what'?s up|howdy)[\s!?.]*$/i.test(msg)) return "👋";
-
-  // === GOODBYES ===
-  if (/bye|later|see (you|ya)|peace|dip|heading out|gotta go|night|goodnight|gn/.test(msg)) return "👋";
-  if (/have a good|enjoy|take care|catch you/.test(msg)) return "👋";
-
-  // === AGREEMENT / CONFIRMATION ===
-  if (/^(ok|okay|cool|bet|got it|sure|yep|yup|nice|k|word|alright|sounds good|works|dope|solid|facts|copy|heard|noted|for sure|fosho|absolutely)[\s!.]*$/i.test(msg)) return "👍";
-  if (/^(yes|yeah|yep|yup|go ahead|do it|place it|let'?s do it|send it|confirmed|go for it|pull the trigger)[\s!.]*$/i.test(msg)) return "👍";
-
-  // === ARRIVING / ON THE WAY ===
-  if (/on (my|the) way|omw|coming|heading|pulling up|be there|walking|around the corner|almost there|parking|here/.test(msg)) return "👍";
-
-  // === ORDERING ===
-  if (/latte|coffee|matcha|tea|americano|flat white|cold brew|oolong|jasmine|earl grey|chamomile|lemonade/.test(msg)) return "👍";
-
-  // === ENCOURAGEMENT / SUPPORT (when they share something vulnerable) ===
-  if (/wish me luck|pray for me|fingers crossed|hope (it|this)|nervous|anxious|scared|worried/.test(msg)) return "❤️";
-  if (/interview|exam|test|presentation|big meeting|first date/.test(msg)) return "🔥";
-
-  // === SINGLE EMOJI MESSAGES -- mirror the energy ===
+  // === SINGLE EMOJI -- mirror ===
   if (/^(❤️|🫶|💕|😘|🥰)$/.test(msg.trim())) return "❤️";
   if (/^(😂|🤣|💀)$/.test(msg.trim())) return "😂";
-  if (/^(🔥|💪|🎉|🥳|👑|🏆)$/.test(msg.trim())) return "🔥";
-  if (/^(👋|✌️|🤙)$/.test(msg.trim())) return "👋";
-  if (/^(👍|🙏|🤝)$/.test(msg.trim())) return "👍";
+  if (/^(🔥|💪|🎉|🥳|👑)$/.test(msg.trim())) return "🔥";
+  if (/^(👋|✌️)$/.test(msg.trim())) return "👋";
+  if (/^(👍|🙏)$/.test(msg.trim())) return "👍";
 
-  // === CASUAL SHORT MESSAGES -- react ~50% of the time to keep it alive ===
-  if (msg.length < 30 && Math.random() < 0.5) return "👍";
+  // === SHORT CONFIRMATIONS -- like, but only ~20% of the time ===
+  if (/^(ok|cool|bet|got it|sure|yep|word|sounds good)[\s!.]*$/i.test(msg) && Math.random() < 0.2) return "👍";
 
   return null;
 }
@@ -2034,62 +1999,52 @@ async function handleInboundMessage(payload) {
     return;
   }
 
-  // Step 5: READING PAUSE -- a real person reads the message before typing
-  // Short messages = quick read (800-1200ms). Longer = more time (up to 2500ms).
-  const readTime = Math.min(800 + body.length * 15, 2500) + Math.random() * 400;
+  // === FLUID HUMAN PIPELINE ===
+  // How a real person texts: see message -> start typing quickly -> send when done
+  // No dead air. No stop-typing-then-send gap. Fluid.
 
-  // Step 5b: Start typing indicator AFTER reading pause
-  setTimeout(() => {
-    sendTypingIndicator(chatId);
-    // Keep typing alive every 3 seconds in case API takes a while
-    const typingKeepAlive = setInterval(() => sendTypingIndicator(chatId), 3000);
-    // Store the interval so we can clear it when we send
-    pendingTypingIntervals[from] = typingKeepAlive;
-  }, readTime);
-
-  // Step 5c: Try to learn their name from what they said
   extractNameFromMessage(body, from);
+  const pipelineStart = Date.now();
 
-  // Step 6: Wait for the reading pause, THEN generate reply
-  await new Promise(r => setTimeout(r, readTime));
+  // Start typing after a quick glance (400-800ms)
+  const readDelay = 400 + Math.random() * 400;
+  setTimeout(() => sendTypingIndicator(chatId), readDelay);
 
-  // Step 6b: Generate reply via Claude (typing bubble is already showing)
-  const replyPromise = conciergeReply(body, from, { isGroup: payload.isGroup, chatId: payload.chatId, senderName: payload.senderName, historyAlreadyAdded: payload.historyAlreadyAdded, imageItems: payload.imageItems, replyContext: payload.replyContext });
+  // Generate reply IN PARALLEL (Claude starts thinking immediately)
+  const replyPromise = conciergeReply(body, from, {
+    isGroup: payload.isGroup, chatId: payload.chatId,
+    senderName: payload.senderName, historyAlreadyAdded: payload.historyAlreadyAdded,
+    imageItems: payload.imageItems, replyContext: payload.replyContext,
+  });
 
-  // Step 7: Wait for Claude's reply
   const reply = await replyPromise;
   console.log(`[Concierge] "${body}" -> "${reply}"`);
 
-  // Step 8: "Composing" delay -- the time between thinking of the reply and hitting send
-  // Short replies (1-5 words) = quick send (300-700ms)
-  // Longer replies = more typing time (up to 1500ms)
-  const wordCount = reply.split(/\s+/).length;
-  const composeTime = Math.min(300 + wordCount * 80, 1500) + Math.random() * 300;
+  // Ensure the typing bubble was visible for a natural amount of time
+  // If Claude was super fast, wait so total time feels human (1.8-2.5s)
+  const elapsed = Date.now() - pipelineStart;
+  const minTime = 1800 + Math.random() * 700;
+  const waitMore = Math.max(0, minTime - elapsed);
 
+  // Interruption check
   const replyState = { cancelled: false, timeout: null };
   pendingReplies[from] = replyState;
 
-  await new Promise((resolve) => {
-    replyState.timeout = setTimeout(resolve, composeTime);
-  });
+  if (waitMore > 0) {
+    await new Promise((resolve) => {
+      replyState.timeout = setTimeout(resolve, waitMore);
+    });
+  }
 
-  // Step 9: Check if we were interrupted
   if (replyState.cancelled) {
     console.log(`[Interrupt] Reply cancelled for ${from}`);
-    if (pendingTypingIntervals[from]) clearInterval(pendingTypingIntervals[from]);
-    delete pendingTypingIntervals[from];
-    await stopTypingIndicator(chatId);
     return;
   }
 
-  // Step 10: Stop typing and send
-  if (pendingTypingIntervals[from]) clearInterval(pendingTypingIntervals[from]);
-  delete pendingTypingIntervals[from];
-  await stopTypingIndicator(chatId);
-  await new Promise(r => setTimeout(r, 80 + Math.random() * 120)); // tiny gap before message appears
-
+  // Send IMMEDIATELY -- no stop-typing, no gaps
+  // iMessage naturally replaces the typing bubble with the message
   const result = await sendSMS(from, reply);
-  console.log(`[Concierge] Reply sent:`, result.ok ? "OK" : result.error);
+  console.log(`[Concierge] Reply sent (${Date.now() - pipelineStart}ms):`, result.ok ? "OK" : result.error);
 
   // Log outbound message for reply-to lookups
   if (result.ok && result.messageId) {
@@ -2136,7 +2091,7 @@ async function handleInboundMessage(payload) {
     body: reply,
     auto: true,
     sendResult: result,
-    timing: composeTime,
+    timing: Date.now() - pipelineStart,
     timestamp: Date.now(),
   });
 
