@@ -1550,30 +1550,20 @@ async function reactToMessage(messageId, reaction) {
     "😂": "laugh",
     "‼️": "emphasize",
     "❓": "question",
-    "🔥": "emphasize", // fallback: 🔥 -> emphasize (!!)
-    "👋": "like",      // fallback: 👋 -> like (👍)
+    "🔥": "emphasize",
+    "👋": "like",
   };
 
   const tapbackName = tapbackMap[reaction] || "like";
 
-  // Try multiple body formats -- we don't know which one Linqapp expects
+  // Linqapp requires operation: "add" or "remove"
   const bodyFormats = [
-    // Format 1: tapback name string
-    { reaction: tapbackName },
-    // Format 2: emoji directly
-    { reaction },
-    // Format 3: nested type
-    { reaction: { type: tapbackName } },
-    // Format 4: type at top level
-    { type: tapbackName },
-    // Format 5: value field
-    { value: tapbackName },
-    // Format 6: emoji in emoji field
-    { emoji: reaction },
-    // Format 7: iMessage-specific format
-    { tapback: tapbackName },
-    // Format 8: action format
-    { action: tapbackName, message_id: messageId },
+    { operation: "add", reaction: tapbackName },
+    { operation: "add", reaction },
+    { operation: "add", type: tapbackName },
+    { operation: "add", value: tapbackName },
+    { operation: "add", emoji: reaction },
+    { operation: "add", tapback: tapbackName },
   ];
 
   for (let i = 0; i < bodyFormats.length; i++) {
@@ -1594,33 +1584,12 @@ async function reactToMessage(messageId, reaction) {
         return { ok: true, format: i + 1 };
       }
 
-      // Log first few failures for debugging, skip the rest to reduce noise
       if (i < 3) {
         console.log(`[React] Format ${i + 1} failed (${res.status}): ${text.substring(0, 200)}`);
       }
     } catch (err) {
       if (i < 2) console.log(`[React] Format ${i + 1} error: ${err.message}`);
     }
-  }
-
-  // Try PUT instead of POST as some APIs use PUT for reactions
-  try {
-    const res = await fetch(url, {
-      method: "PUT",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${CONFIG.LINQAPP_API_TOKEN}`,
-      },
-      body: JSON.stringify({ reaction: tapbackName }),
-    });
-    const text = await res.text();
-    if (res.ok) {
-      console.log(`[React] SUCCESS via PUT (${res.status}): ${reaction} -> ${text}`);
-      return { ok: true, format: "PUT" };
-    }
-    console.log(`[React] PUT also failed (${res.status}): ${text.substring(0, 200)}`);
-  } catch (err) {
-    console.log(`[React] PUT error: ${err.message}`);
   }
 
   console.log(`[React] All formats failed for ${reaction} (${tapbackName}) on message ${messageId}`);
@@ -2167,7 +2136,7 @@ async function handleInboundMessage(payload) {
     body: reply,
     auto: true,
     sendResult: result,
-    timing: sendGap,
+    timing: composeTime,
     timestamp: Date.now(),
   });
 
