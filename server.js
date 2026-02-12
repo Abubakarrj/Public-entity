@@ -209,6 +209,8 @@ const PERSIST_FILES = {
   groups: `${DATA_DIR}/groups.json`,
   contactCards: `${DATA_DIR}/contact_cards.json`,
   preferences: `${DATA_DIR}/preferences.json`,
+  scheduled: `${DATA_DIR}/scheduled.json`,
+  conversations: `${DATA_DIR}/conversations.json`,
 };
 
 // Ensure data directory exists
@@ -272,6 +274,32 @@ function loadPersistedData() {
       console.log(`[Persist] Loaded ${Object.keys(data).length} preference profiles`);
     }
   } catch (e) { console.log(`[Persist] Preferences load failed: ${e.message}`); }
+
+  try {
+    if (fs.existsSync(PERSIST_FILES.scheduled)) {
+      const data = JSON.parse(fs.readFileSync(PERSIST_FILES.scheduled, "utf8"));
+      // Re-schedule any pending messages
+      if (Array.isArray(data) && data.length > 0) {
+        for (const entry of data) {
+          if (entry.triggerAt > Date.now()) {
+            scheduledMessages.push(entry);
+            const delay = entry.triggerAt - Date.now();
+            setTimeout(() => fireScheduledMessage(entry), delay);
+            console.log(`[Persist] Re-scheduled message for ${entry.phone} in ${Math.round(delay / 60000)}min`);
+          }
+        }
+        console.log(`[Persist] Loaded ${scheduledMessages.length} scheduled messages`);
+      }
+    }
+  } catch (e) { console.log(`[Persist] Scheduled load failed: ${e.message}`); }
+
+  try {
+    if (fs.existsSync(PERSIST_FILES.conversations)) {
+      const data = JSON.parse(fs.readFileSync(PERSIST_FILES.conversations, "utf8"));
+      Object.assign(conversationStore, data);
+      console.log(`[Persist] Loaded ${Object.keys(data).length} conversation histories`);
+    }
+  } catch (e) { console.log(`[Persist] Conversations load failed: ${e.message}`); }
 }
 
 function savePersistedData() {
@@ -306,6 +334,14 @@ function savePersistedData() {
   try {
     fs.writeFileSync(PERSIST_FILES.preferences, JSON.stringify(preferenceStore, null, 2));
   } catch (e) { console.log(`[Persist] Preferences save failed: ${e.message}`); }
+
+  try {
+    fs.writeFileSync(PERSIST_FILES.scheduled, JSON.stringify(scheduledMessages, null, 2));
+  } catch (e) { console.log(`[Persist] Scheduled save failed: ${e.message}`); }
+
+  try {
+    fs.writeFileSync(PERSIST_FILES.conversations, JSON.stringify(conversationStore, null, 2));
+  } catch (e) { console.log(`[Persist] Conversations save failed: ${e.message}`); }
 }
 
 // Auto-save every 30 seconds
@@ -1191,6 +1227,7 @@ function fallbackReply(text, member) {
 
 // Track in-flight replies so they can be interrupted
 const pendingReplies = {}; // phone -> { abortController, timeout }
+const pendingTypingIntervals = {}; // phone -> setInterval ID for typing keepalive
 
 // Deduplicate inbound messages
 const recentMessageIds = new Set(); // messageId set, auto-clears after 5min
@@ -1505,13 +1542,38 @@ async function reactToMessage(messageId, reaction) {
 
   const url = `https://api.linqapp.com/api/partner/v3/messages/${messageId}/reactions`;
 
-  // Try multiple body formats to discover the right one
+  // Map emoji to iMessage tapback names
+  const tapbackMap = {
+    "❤️": "love",
+    "👍": "like",
+    "👎": "dislike",
+    "😂": "laugh",
+    "‼️": "emphasize",
+    "❓": "question",
+    "🔥": "emphasize", // fallback: 🔥 -> emphasize (!!)
+    "👋": "like",      // fallback: 👋 -> like (👍)
+  };
+
+  const tapbackName = tapbackMap[reaction] || "like";
+
+  // Try multiple body formats -- we don't know which one Linqapp expects
   const bodyFormats = [
+    // Format 1: tapback name string
+    { reaction: tapbackName },
+    // Format 2: emoji directly
     { reaction },
-    { reaction: { type: reaction } },
-    { type: reaction },
+    // Format 3: nested type
+    { reaction: { type: tapbackName } },
+    // Format 4: type at top level
+    { type: tapbackName },
+    // Format 5: value field
+    { value: tapbackName },
+    // Format 6: emoji in emoji field
     { emoji: reaction },
-    { value: reaction },
+    // Format 7: iMessage-specific format
+    { tapback: tapbackName },
+    // Format 8: action format
+    { action: tapbackName, message_id: messageId },
   ];
 
   for (let i = 0; i < bodyFormats.length; i++) {
@@ -1528,17 +1590,40 @@ async function reactToMessage(messageId, reaction) {
       const text = await res.text();
 
       if (res.ok) {
-        console.log(`[React] SUCCESS format ${i + 1} (${res.status}): ${reaction} -> ${text}`);
+        console.log(`[React] SUCCESS format ${i + 1} (${res.status}): ${reaction} (${tapbackName}) -> ${text}`);
         return { ok: true, format: i + 1 };
       }
 
-      console.log(`[React] Format ${i + 1} failed (${res.status}): ${text}`);
+      // Log first few failures for debugging, skip the rest to reduce noise
+      if (i < 3) {
+        console.log(`[React] Format ${i + 1} failed (${res.status}): ${text.substring(0, 200)}`);
+      }
     } catch (err) {
-      console.log(`[React] Format ${i + 1} error: ${err.message}`);
+      if (i < 2) console.log(`[React] Format ${i + 1} error: ${err.message}`);
     }
   }
 
-  console.log(`[React] All formats failed for ${reaction}`);
+  // Try PUT instead of POST as some APIs use PUT for reactions
+  try {
+    const res = await fetch(url, {
+      method: "PUT",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${CONFIG.LINQAPP_API_TOKEN}`,
+      },
+      body: JSON.stringify({ reaction: tapbackName }),
+    });
+    const text = await res.text();
+    if (res.ok) {
+      console.log(`[React] SUCCESS via PUT (${res.status}): ${reaction} -> ${text}`);
+      return { ok: true, format: "PUT" };
+    }
+    console.log(`[React] PUT also failed (${res.status}): ${text.substring(0, 200)}`);
+  } catch (err) {
+    console.log(`[React] PUT error: ${err.message}`);
+  }
+
+  console.log(`[React] All formats failed for ${reaction} (${tapbackName}) on message ${messageId}`);
   return { ok: false };
 }
 
@@ -1980,41 +2065,59 @@ async function handleInboundMessage(payload) {
     return;
   }
 
-  // Step 5: Start typing indicator RIGHT AWAY (300-600ms -- like picking up phone and starting to type)
-  setTimeout(() => sendTypingIndicator(chatId), 300 + Math.random() * 300);
+  // Step 5: READING PAUSE -- a real person reads the message before typing
+  // Short messages = quick read (800-1200ms). Longer = more time (up to 2500ms).
+  const readTime = Math.min(800 + body.length * 15, 2500) + Math.random() * 400;
 
-  // Step 5b: Try to learn their name from what they said
+  // Step 5b: Start typing indicator AFTER reading pause
+  setTimeout(() => {
+    sendTypingIndicator(chatId);
+    // Keep typing alive every 3 seconds in case API takes a while
+    const typingKeepAlive = setInterval(() => sendTypingIndicator(chatId), 3000);
+    // Store the interval so we can clear it when we send
+    pendingTypingIntervals[from] = typingKeepAlive;
+  }, readTime);
+
+  // Step 5c: Try to learn their name from what they said
   extractNameFromMessage(body, from);
 
-  // Step 6: Generate reply via Claude IN PARALLEL with typing indicator
+  // Step 6: Wait for the reading pause, THEN generate reply
+  await new Promise(r => setTimeout(r, readTime));
+
+  // Step 6b: Generate reply via Claude (typing bubble is already showing)
   const replyPromise = conciergeReply(body, from, { isGroup: payload.isGroup, chatId: payload.chatId, senderName: payload.senderName, historyAlreadyAdded: payload.historyAlreadyAdded, imageItems: payload.imageItems, replyContext: payload.replyContext });
 
   // Step 7: Wait for Claude's reply
   const reply = await replyPromise;
   console.log(`[Concierge] "${body}" -> "${reply}"`);
 
-  // Step 8: Small natural delay after Claude responds (typing -> send gap)
-  // Claude API already took ~500-1500ms which IS our "typing time"
-  // Just add a tiny human gap: 200-600ms
-  const sendGap = 200 + Math.random() * 400;
+  // Step 8: "Composing" delay -- the time between thinking of the reply and hitting send
+  // Short replies (1-5 words) = quick send (300-700ms)
+  // Longer replies = more typing time (up to 1500ms)
+  const wordCount = reply.split(/\s+/).length;
+  const composeTime = Math.min(300 + wordCount * 80, 1500) + Math.random() * 300;
 
   const replyState = { cancelled: false, timeout: null };
   pendingReplies[from] = replyState;
 
   await new Promise((resolve) => {
-    replyState.timeout = setTimeout(resolve, sendGap);
+    replyState.timeout = setTimeout(resolve, composeTime);
   });
 
   // Step 9: Check if we were interrupted
   if (replyState.cancelled) {
     console.log(`[Interrupt] Reply cancelled for ${from}`);
+    if (pendingTypingIntervals[from]) clearInterval(pendingTypingIntervals[from]);
+    delete pendingTypingIntervals[from];
     await stopTypingIndicator(chatId);
     return;
   }
 
   // Step 10: Stop typing and send
+  if (pendingTypingIntervals[from]) clearInterval(pendingTypingIntervals[from]);
+  delete pendingTypingIntervals[from];
   await stopTypingIndicator(chatId);
-  await new Promise(r => setTimeout(r, 50 + Math.random() * 80)); // tiny gap
+  await new Promise(r => setTimeout(r, 80 + Math.random() * 120)); // tiny gap before message appears
 
   const result = await sendSMS(from, reply);
   console.log(`[Concierge] Reply sent:`, result.ok ? "OK" : result.error);
@@ -2156,6 +2259,37 @@ function scheduleOrderFollowUp(phone, chatId) {
 // ============================================================
 const scheduledMessages = []; // { phone, chatId, message, triggerAt, id }
 
+async function fireScheduledMessage(entry) {
+  // Remove from list
+  const idx = scheduledMessages.indexOf(entry);
+  if (idx > -1) scheduledMessages.splice(idx, 1);
+  savePersistedData();
+
+  // Send typing then message
+  await sendTypingIndicator(entry.chatId);
+  await new Promise(r => setTimeout(r, 800 + Math.random() * 500));
+  await stopTypingIndicator(entry.chatId);
+
+  const result = await sendSMS(entry.phone, entry.message);
+  console.log(`[Schedule] Sent to ${entry.phone}:`, result.ok ? "OK" : result.error);
+
+  // Add to conversation history
+  const convoKey = conversationStore[`group:${entry.chatId}`] ? `group:${entry.chatId}` : entry.phone;
+  if (conversationStore[convoKey]) {
+    conversationStore[convoKey].push({ role: "assistant", content: entry.message });
+  }
+
+  broadcast({
+    type: "outbound_message",
+    to: entry.phone,
+    body: entry.message,
+    auto: true,
+    scheduled: true,
+    sendResult: result,
+    timestamp: Date.now(),
+  });
+}
+
 function scheduleMessage(phone, chatId, message, delayMs) {
   const id = `sched_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
   const triggerAt = Date.now() + delayMs;
@@ -2164,36 +2298,9 @@ function scheduleMessage(phone, chatId, message, delayMs) {
 
   const entry = { phone, chatId, message, triggerAt, id };
   scheduledMessages.push(entry);
+  savePersistedData();
 
-  setTimeout(async () => {
-    // Remove from list
-    const idx = scheduledMessages.indexOf(entry);
-    if (idx > -1) scheduledMessages.splice(idx, 1);
-
-    // Send typing then message
-    await sendTypingIndicator(chatId);
-    await new Promise(r => setTimeout(r, 300 + Math.random() * 300));
-    await stopTypingIndicator(chatId);
-
-    const result = await sendSMS(phone, message);
-    console.log(`[Schedule] Sent to ${phone}:`, result.ok ? "OK" : result.error);
-
-    // Add to conversation history
-    const convoKey = conversationStore[`group:${chatId}`] ? `group:${chatId}` : phone;
-    if (conversationStore[convoKey]) {
-      conversationStore[convoKey].push({ role: "assistant", content: message });
-    }
-
-    broadcast({
-      type: "outbound_message",
-      to: phone,
-      body: message,
-      auto: true,
-      scheduled: true,
-      sendResult: result,
-      timestamp: Date.now(),
-    });
-  }, delayMs);
+  setTimeout(() => fireScheduledMessage(entry), delayMs);
 
   return { ok: true, id, triggerAt };
 }
