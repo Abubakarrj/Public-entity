@@ -29,6 +29,7 @@ const WebSocket = require("ws");
 const cors = require("cors");
 const fetch = require("node-fetch");
 const crypto = require("crypto");
+const fs = require("fs");
 
 const app = express();
 const server = http.createServer(app);
@@ -198,8 +199,6 @@ const contactCardSent = {}; // phone -> true
 // ============================================================
 // FILE-BASED PERSISTENCE
 // Survives server restarts. Saves names, members, chats, groups.
-// ============================================================
-const fs = require("fs");
 const DATA_DIR = process.env.DATA_DIR || "./data";
 const PERSIST_FILES = {
   names: `${DATA_DIR}/names.json`,
@@ -675,24 +674,26 @@ You won't always know everyone's name. Here's how to handle it:
 ASKING FOR NAMES:
 - FIRST: Check the context. The system tells you which participants have names and which don't.
   - If context shows "Bryan F. (19785551234)" -- you know Bryan. Use his name. Don't ask again.
-  - If context shows "19175559876 [no name]" -- you don't know this person. You need their name for the order.
-- Names persist forever. Once someone tells you their name, you'll see it in context for every future conversation. You don't need to re-ask.
-- You need first name and last initial. "Sarah H." not just "Sarah" -- because there will be multiple Sarahs.
+  - If context shows "19175559876 [NO NAME]" -- you don't know this person yet.
+- Names persist forever. Once someone tells you their name, you'll see it in context for every future conversation.
+
+CRITICAL -- "YOU KNOW ME" / "YOU KNOW ME ALREADY" / "WE'VE MET":
+- If someone says this and the system DOES have their name: use it. "Of course, [name]. What's up?"
+- If someone says this and the system does NOT have their name: DON'T ask for it immediately. Be natural about it:
+  - "My bad, refresh my memory -- what's your name?" or "I'm blanking -- remind me?"
+  - NEVER respond with something that sounds like you're denying knowing them or challenging them.
+  - The tone is "sorry I forgot" not "prove who you are."
 
 WHEN to ask:
-- In DMs: toward the end of the first interaction, casually. "What's your name? First and last initial."
-- In GROUPS: you need names to take orders. Ask unknowns early enough to attach orders to names, but not as your opening line.
-  - If only 1 person is unknown: "And you are?" or "Don't think we've met -- name?"
-  - If multiple unknowns: "For anyone I don't know yet -- drop your name. First and last initial."
-  - If someone orders without a name: "Got it. What name for that order?"
+- In DMs: DON'T ask for a name as your first or second message. Let the conversation happen. Ask casually later if you need it, or just wait for them to mention it naturally.
+- In GROUPS: only ask when you actually need names to take orders.
+  - "And you are?" or "Don't think we've met -- name?"
+  - If someone orders without a name: "Got it. Name for that?"
 - Don't make it a big deal. One short question, move on.
 
-- If someone gives just a first name ("I'm Sarah"), follow up once: "Last initial too?"
+- If someone gives just a first name, follow up once: "Last initial too?"
 - If they give a full last name ("Sarah Henderson"), use "Sarah H."
-- Once you have it: "Got it, Sarah H." and move on. Don't make a ceremony of it.
-- If someone gives just a first name ("I'm Sarah"), gently follow up: "Sarah...? Last initial too, so I don't mix you up with another Sarah."
-- If they give a full last name ("Sarah Henderson"), store it as "Sarah H." -- you only need the initial.
-- Once you have it, confirm naturally: "Got it, Sarah H. I'll remember you."
+- Once you have it: "Got it, Sarah H." and move on.
 
 DUPLICATE FIRST NAMES -- HAVE FUN WITH IT:
 - If someone gives just a first name and there's already someone with that name, this is a moment for personality. Don't be robotic about it. Examples:
@@ -1042,8 +1043,7 @@ const recentContentHash = {}; // "phone:body" -> timestamp, for content-based de
 // Track last interaction for proactive follow-ups
 const lastInteraction = {}; // phone -> { time, context, orderPending }
 
-// Track learned names (from Linqapp data, introductions, or self-identification)
-// (nameStore declared at top with persistence)
+// Name tracking (from Linqapp data, introductions, or self-identification)
 
 function learnName(phone, name) {
   if (!phone || !name) return;
@@ -1343,9 +1343,6 @@ async function shareContactCard(chatId) {
   }
 }
 
-// (contactCardSent declared at top with persistence)
-// (groupChats declared at top with persistence)
-
 // ============================================================
 // GROUP CHAT MANAGEMENT
 // ============================================================
@@ -1522,22 +1519,6 @@ function isReactionSufficient(text, reaction) {
 }
 
 // Calculate human-like response delay based on message content
-function calculateResponseDelay(inboundText, replyText) {
-  const inLen = inboundText.length;
-  const outLen = replyText.length;
-
-  // Much faster -- this is texting, not email
-  // Short messages get fast replies. Longer ones get slightly more time.
-  const readTime = Math.min(inLen * 15, 600); // Quick scan
-  const typeTime = Math.min(outLen * 20, 1200); // Fast texter
-
-  // Small natural jitter
-  const jitter = (Math.random() - 0.5) * 200;
-
-  // Total: 400ms minimum (instant feel), 2s max (even for long messages)
-  return Math.round(Math.max(400, Math.min(readTime + typeTime + jitter, 2000)));
-}
-
 // Cancel any pending reply for this phone (interruption)
 function cancelPendingReply(phone) {
   if (pendingReplies[phone]) {
@@ -1680,7 +1661,7 @@ async function handleInboundMessage(payload) {
     body: reply,
     auto: true,
     sendResult: result,
-    timing: responseDelay,
+    timing: sendGap,
     timestamp: Date.now(),
   });
 
@@ -2059,15 +2040,8 @@ function cleanPhone(phone) {
 
 // ============================================================
 // LINQAPP SEND API
-// Server -> Linqapp -> Member's phone
 // ============================================================
 
-// ============================================================
-// CHAT ID STORE -- maps phone numbers to Linqapp chat IDs
-// ============================================================
-// (chatStore is declared at top with persistence system)
-
-// Track rate limit state
 let rateLimitHit = false;
 let rateLimitResetTime = null;
 
@@ -2557,7 +2531,7 @@ server.listen(CONFIG.PORT, () => {
   console.log(`  Health:    GET  /api/health`);
   console.log(`  Numbers:   GET  /api/phonenumbers`);
   console.log(`  Phone:     ${CONFIG.LINQAPP_PHONE || "(set in .env)"}`);
-  console.log(`  Token:     ${CONFIG.LINQAPP_API_TOKEN ? "••••" + CONFIG.LINQAPP_API_TOKEN.slice(-8) : "WARNING: MISSING -- set LINQAPP_API_TOKEN in .env"}`);
+  console.log(`  Token:     ${CONFIG.LINQAPP_API_TOKEN ? "****" + CONFIG.LINQAPP_API_TOKEN.slice(-8) : "WARNING: MISSING -- set LINQAPP_API_TOKEN in .env"}`);
   console.log(`  AI Brain:  ${CONFIG.ANTHROPIC_API_KEY ? "Claude (active)" : "Fallback regex (set ANTHROPIC_API_KEY for Claude)"}`);
   console.log(`  Data:      ${DATA_DIR} (${Object.keys(nameStore).length} names, ${Object.keys(memberStore).length} members)`);
   console.log("==========================================");
