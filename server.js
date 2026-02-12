@@ -196,6 +196,7 @@ const nameStore = {}; // phone -> name
 const groupChats = {}; // chatId -> { isGroup, participants: Set, orders, groupName }
 const contactCardSent = {}; // phone -> true
 const preferenceStore = {}; // phone -> { drinks: [], milk, size, sugar, notes: [], lastVisit, visitCount }
+const messageLog = {}; // messageId -> { body, from, role, timestamp } -- for reply-to lookups
 
 // ============================================================
 // FILE-BASED PERSISTENCE
@@ -499,6 +500,22 @@ DON'T OVER-RESPOND:
 - In groups, if they're not talking to you, stay quiet.
 - When in doubt: would a real person reply to this, or just leave it on read? Do that.
 
+DON'T ASSUME EVERYTHING IS ABOUT COFFEE:
+- CRITICAL: Not every message is about their order or the space. People text you about LIFE.
+- If someone says something that COULD be about coffee or could be about anything — read the context. What were the last few messages about?
+- If the last few messages were about something non-coffee, stay in that lane.
+- Only connect a message to an order if it's CLEARLY about the order (they just got it, they're asking about it, they reference it specifically).
+- Your default interpretation of any message should be CONVERSATIONAL, not transactional.
+
+TEASES AND COMPLIMENTS — take them like a person, not a service:
+- "I knew you wouldn't fail me" → "never do 😏" or "that's what I'm here for" (take the W, don't redirect to the drink)
+- "you're the best" → "I know" not "glad you enjoyed the latte!"
+- "this place is fire" → "told you" not "thank you! we appreciate that"
+- If they're clearly teasing you about doing your job well, TAKE THE COMPLIMENT WITH SWAGGER. Don't deflect to the product.
+
+BAD: "I knew you wouldn't fail me" → "told you the flat white hits different. how was it?" (assumed it was specifically about the coffee, pivoted to order feedback)
+GOOD: "I knew you wouldn't fail me" → "never do 😏" (took the compliment, stayed in the moment)
+
 === SCHEDULING AND REMINDERS ===
 
 If a member asks you to do something later, handle it:
@@ -754,6 +771,17 @@ Not "that service is efficient." Not "that bot is good." Not "that was professio
 
 "That person gets me."
 
+=== REPLIES TO SPECIFIC MESSAGES ===
+
+Sometimes a member replies to a specific previous message (iMessage reply thread). When this happens, you'll see:
+[Replying to you: "original message text"] or [Replying to themselves: "original message text"]
+
+This is CRITICAL context. It tells you exactly what they're responding to.
+- If they reply to your message with "this" or "yes" or "lol" — they're reacting to THAT specific message, not the overall conversation.
+- If they reply to their own message — they're adding to or correcting what they said.
+- If they reply to your order confirmation with "actually make it iced" — they're modifying that specific order.
+- Use the quoted message to understand what "it", "this", "that", "yes", "no" refer to.
+
 === RAPID-FIRE MESSAGES ===
 
 Sometimes members send multiple texts quickly before you reply. When you see two or more messages from them in a row, address the latest intent -- don't reply to each one individually. They were still forming their thought.
@@ -969,7 +997,7 @@ async function conciergeReply(text, phone, payload = {}) {
     memberStore[phone].name = nameStore[phone];
   }
   const member = memberStore[phone];
-  const { isGroup, chatId, senderName } = payload;
+  const { isGroup, chatId, senderName, replyContext } = payload;
 
   // For group chats, use chatId as the conversation key (shared history)
   // For DMs, use phone number
@@ -1043,6 +1071,13 @@ async function conciergeReply(text, phone, payload = {}) {
     contextNote = `[Member: ${senderLabel} (${nameStatus}${dupeWarning}), Tier: ${member.tier}, Daily order used: ${member.dailyOrderUsed}${memory}]`;
   }
 
+  // Build reply-to context string if this message is a reply to a specific message
+  let replyPrefix = "";
+  if (replyContext && replyContext.body) {
+    const who = replyContext.role === "concierge" ? "you" : "themselves";
+    replyPrefix = `[Replying to ${who}: "${replyContext.body}"]\n`;
+  }
+
   // For group chats, messages are already added during debounce phase
   // Only add if not already in history (DMs, or non-debounced calls)
   if (!payload.historyAlreadyAdded) {
@@ -1051,7 +1086,7 @@ async function conciergeReply(text, phone, payload = {}) {
     if (images.length > 0 && images[0].url) {
       // Multi-content: text + image(s)
       const contentParts = [];
-      contentParts.push({ type: "text", text: `${contextNote}\n\nMember says: "${text}"` });
+      contentParts.push({ type: "text", text: `${contextNote}\n\n${replyPrefix}Member says: "${text}"` });
 
       for (const img of images) {
         if (img.url) {
@@ -1067,7 +1102,7 @@ async function conciergeReply(text, phone, payload = {}) {
     } else {
       conversationStore[convoKey].push({
         role: "user",
-        content: `${contextNote}\n\nMember says: "${text}"`,
+        content: `${contextNote}\n\n${replyPrefix}Member says: "${text}"`,
       });
     }
   }
@@ -1911,6 +1946,17 @@ async function handleInboundMessage(payload) {
   // Everything happens at once. Read receipt is instant.
   // Typing starts immediately. Claude generates while typing shows.
 
+  // Log this message for future reply-to lookups
+  if (messageId) {
+    messageLog[messageId] = { body, from, role: "member", timestamp: Date.now() };
+    // Keep log from growing forever -- prune old entries every 100 messages
+    const logKeys = Object.keys(messageLog);
+    if (logKeys.length > 500) {
+      const toRemove = logKeys.slice(0, logKeys.length - 500);
+      toRemove.forEach(k => delete messageLog[k]);
+    }
+  }
+
   // Step 3: Read receipt -- INSTANT (like picking up your phone)
   sendReadReceipt(chatId);
 
@@ -1941,7 +1987,7 @@ async function handleInboundMessage(payload) {
   extractNameFromMessage(body, from);
 
   // Step 6: Generate reply via Claude IN PARALLEL with typing indicator
-  const replyPromise = conciergeReply(body, from, { isGroup: payload.isGroup, chatId: payload.chatId, senderName: payload.senderName, historyAlreadyAdded: payload.historyAlreadyAdded, imageItems: payload.imageItems });
+  const replyPromise = conciergeReply(body, from, { isGroup: payload.isGroup, chatId: payload.chatId, senderName: payload.senderName, historyAlreadyAdded: payload.historyAlreadyAdded, imageItems: payload.imageItems, replyContext: payload.replyContext });
 
   // Step 7: Wait for Claude's reply
   const reply = await replyPromise;
@@ -1972,6 +2018,11 @@ async function handleInboundMessage(payload) {
 
   const result = await sendSMS(from, reply);
   console.log(`[Concierge] Reply sent:`, result.ok ? "OK" : result.error);
+
+  // Log outbound message for reply-to lookups
+  if (result.ok && result.messageId) {
+    messageLog[result.messageId] = { body: reply, from: "concierge", role: "concierge", timestamp: Date.now() };
+  }
 
   // Try to learn name from Claude's confirmation (e.g. "Got it, Bryan F.")
   extractNameFromReply(reply, from);
@@ -2239,9 +2290,16 @@ app.post("/api/webhook/linqapp", async (req, res) => {
     // Try to learn name from what they said in the group
     extractNameFromMessage(payload.body, payload.from);
 
+    // Build reply-to prefix for group messages
+    let groupReplyPrefix = "";
+    if (payload.replyContext && payload.replyContext.body) {
+      const who = payload.replyContext.role === "concierge" ? "you" : "someone";
+      groupReplyPrefix = ` (replying to ${who}: "${payload.replyContext.body}")`;
+    }
+
     conversationStore[convoKey].push({
       role: "user",
-      content: `[GROUP -- ${participantCount} people. ${senderLabel} says:] "${payload.body}"`,
+      content: `[GROUP -- ${participantCount} people. ${senderLabel} says${groupReplyPrefix}:] "${payload.body}"`,
     });
 
     // Keep history manageable
@@ -2350,6 +2408,50 @@ async function normalizeInbound(body) {
   const chatId = chat.id || "";
   const isGroup = chat.is_group || false;
 
+  // Extract reply-to / quoted message context
+  // Linqapp may send this as: reply_to, in_reply_to, referenced_message, quoted_message, thread
+  const replyTo = data.reply_to || data.in_reply_to || data.referenced_message ||
+    data.quoted_message || data.thread || data.reply || null;
+
+  let replyContext = null;
+  if (replyTo) {
+    const refId = replyTo.id || replyTo.message_id || replyTo;
+    const refBody = replyTo.body || replyTo.text || replyTo.value || replyTo.content || null;
+
+    // Try to look up the original message from our log
+    const loggedMsg = typeof refId === "string" ? messageLog[refId] : null;
+
+    if (refBody || loggedMsg) {
+      replyContext = {
+        id: refId,
+        body: refBody || (loggedMsg && loggedMsg.body) || "[unknown message]",
+        from: replyTo.sender || (loggedMsg && loggedMsg.from) || null,
+        role: (loggedMsg && loggedMsg.role) || (replyTo.sender ? "member" : null),
+      };
+      console.log(`[Reply] Message is a reply to: "${replyContext.body}" (${replyContext.role || "unknown"})`);
+    }
+  }
+
+  // Also check parts for reply/quote types
+  if (!replyContext) {
+    const replyPart = parts.find(p => p.type === "reply" || p.type === "quoted" || p.type === "reference");
+    if (replyPart) {
+      replyContext = {
+        id: replyPart.message_id || replyPart.id || null,
+        body: replyPart.value || replyPart.text || replyPart.body || "[unknown message]",
+        from: replyPart.sender || null,
+        role: null,
+      };
+      // Try message log
+      if (replyContext.id && messageLog[replyContext.id]) {
+        const logged = messageLog[replyContext.id];
+        replyContext.body = replyContext.body === "[unknown message]" ? logged.body : replyContext.body;
+        replyContext.role = logged.role;
+      }
+      console.log(`[Reply] Found reply in parts: "${replyContext.body}"`);
+    }
+  }
+
   // Extract sender name from Linqapp data (various possible fields)
   const senderName = senderHandle.display_name || senderHandle.name ||
     senderHandle.contact_name || senderHandle.full_name || null;
@@ -2382,7 +2484,8 @@ async function normalizeInbound(body) {
     isGroup,
     senderName: resolvedName,
     hasAttachment,
-    imageItems, // URLs/data for images that can be passed to Claude vision
+    imageItems,
+    replyContext, // { id, body, from, role } if replying to a specific message
   };
 }
 
@@ -2436,13 +2539,19 @@ async function sendSMS(toPhone, messageBody) {
 
     if (res.ok) {
       console.log(`[SMS] Sent OK (${res.status}) to ${phone}`);
+      // Try to extract messageId from response
+      let messageId = null;
+      try {
+        const parsed = JSON.parse(responseText);
+        messageId = parsed.id || parsed.message_id || (parsed.data && parsed.data.id) || null;
+      } catch (e) {}
       // Clear rate limit if it was set
       if (rateLimitHit) {
         rateLimitHit = false;
         rateLimitResetTime = null;
         console.log(`[SMS] Rate limit cleared`);
       }
-      return { ok: true, status: res.status };
+      return { ok: true, status: res.status, messageId };
     }
 
     // Handle rate limiting gracefully
