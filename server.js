@@ -1053,6 +1053,10 @@ function learnName(phone, name) {
   // Normalize to "First L." format
   const normalized = normalizeName(cleaned);
 
+  // Don't overwrite a more complete name with a less complete one
+  const existing = nameStore[phone];
+  if (existing && existing.includes(".") && !normalized.includes(".")) return;
+
   nameStore[phone] = normalized;
   if (!memberStore[phone]) {
     memberStore[phone] = { tier: "tourist", dailyOrderUsed: false };
@@ -1062,6 +1066,89 @@ function learnName(phone, name) {
 
   // Persist immediately when a name is learned
   savePersistedData();
+}
+
+// Try to extract a name from a message the member sent
+// Handles: "I'm Abu J.", "This is Sarah", "Abu J. You know me already", "Name's Mike T", "It's Bryan", "call me Dave"
+function extractNameFromMessage(text, phone) {
+  if (!text || !phone) return;
+  const msg = text.trim();
+
+  // Skip if too long (probably not a name introduction)
+  if (msg.length > 100) return;
+
+  // Skip if they already have a full name (first + initial)
+  const existing = nameStore[phone];
+  if (existing && existing.includes(".")) return;
+
+  let name = null;
+
+  // "I'm Abu J." / "I'm Sarah" / "im mike"
+  const imMatch = msg.match(/(?:i'?m|i am)\s+([A-Z][a-z]+(?:\s+[A-Z]\.?)?)/i);
+  if (imMatch) name = imMatch[1];
+
+  // "This is Sarah H." / "this is bryan"
+  if (!name) {
+    const thisIsMatch = msg.match(/(?:this is|it'?s|its)\s+([A-Z][a-z]+(?:\s+[A-Z]\.?)?)/i);
+    if (thisIsMatch) name = thisIsMatch[1];
+  }
+
+  // "Name's Mike T" / "name is sarah"
+  if (!name) {
+    const nameIsMatch = msg.match(/(?:name'?s|name is|call me|go by)\s+([A-Z][a-z]+(?:\s+[A-Z]\.?)?)/i);
+    if (nameIsMatch) name = nameIsMatch[1];
+  }
+
+  // "Abu J." or "Abu J" at the start of a short message (< 30 chars)
+  // Like "Abu J. You know me already"
+  if (!name && msg.length < 50) {
+    const leadingNameMatch = msg.match(/^([A-Z][a-z]+\s+[A-Z]\.?)\b/);
+    if (leadingNameMatch) name = leadingNameMatch[1];
+  }
+
+  // Just a first name + last initial alone: "Sarah H" or "Bryan F."
+  if (!name && msg.length < 15) {
+    const bareNameMatch = msg.match(/^([A-Z][a-z]+(?:\s+[A-Z]\.?)?)$/);
+    if (bareNameMatch) {
+      const candidate = bareNameMatch[1];
+      // Make sure it's not a common word
+      const commonWords = /^(ok|hi|hey|yes|no|yo|sup|hot|cold|ice|tea|lol|nah|yep|yup|nvm|idk|omw|thx|bye|latte|mocha|matcha|chai|coffee|thanks|please|sure|cool|nice|good|great|fine)$/i;
+      if (!commonWords.test(candidate)) name = candidate;
+    }
+  }
+
+  // Single letter response in context of being asked for last initial
+  // Like "F" after concierge asked "last initial?"
+  if (!name && /^[A-Z]\.?$/i.test(msg.trim()) && existing && !existing.includes(".")) {
+    const initial = msg.trim().charAt(0).toUpperCase();
+    name = `${existing} ${initial}`;
+    console.log(`[Name] Inferred last initial: ${existing} -> ${name}`);
+  }
+
+  if (name) {
+    learnName(phone, name);
+  }
+}
+
+// Also parse names from Claude's replies
+// When Claude says "Got it, Bryan F." or "I'll remember you, Sarah H."
+function extractNameFromReply(replyText, phone) {
+  if (!replyText || !phone) return;
+
+  // "Got it, Bryan F." / "Bryan F. it is" / "I'll remember you, Sarah H."
+  const patterns = [
+    /(?:got it|noted|saved|welcome),?\s+([A-Z][a-z]+\s+[A-Z]\.)/i,
+    /([A-Z][a-z]+\s+[A-Z]\.)\s+(?:it is|got it|noted|works|confirmed)/i,
+    /(?:remember you|save you as|know you as),?\s+([A-Z][a-z]+\s+[A-Z]\.)/i,
+  ];
+
+  for (const pattern of patterns) {
+    const match = replyText.match(pattern);
+    if (match) {
+      learnName(phone, match[1]);
+      return;
+    }
+  }
 }
 
 // Normalize name to "First L." format
@@ -1536,6 +1623,9 @@ async function handleInboundMessage(payload) {
   // Step 5: Start typing indicator RIGHT AWAY (300-600ms -- like picking up phone and starting to type)
   setTimeout(() => sendTypingIndicator(chatId), 300 + Math.random() * 300);
 
+  // Step 5b: Try to learn their name from what they said
+  extractNameFromMessage(body, from);
+
   // Step 6: Generate reply via Claude IN PARALLEL with typing indicator
   const replyPromise = conciergeReply(body, from, { isGroup: payload.isGroup, chatId: payload.chatId, senderName: payload.senderName, historyAlreadyAdded: payload.historyAlreadyAdded, imageItems: payload.imageItems });
 
@@ -1568,6 +1658,9 @@ async function handleInboundMessage(payload) {
 
   const result = await sendSMS(from, reply);
   console.log(`[Concierge] Reply sent:`, result.ok ? "OK" : result.error);
+
+  // Try to learn name from Claude's confirmation (e.g. "Got it, Bryan F.")
+  extractNameFromReply(reply, from);
 
   // Clean up
   delete pendingReplies[from];
@@ -1809,6 +1902,9 @@ app.post("/api/webhook/linqapp", async (req, res) => {
     const group = groupChats[payload.chatId] || {};
     const participantCount = group.participants ? group.participants.size : 0;
     const senderLabel = payload.senderName || member.name || getName(payload.from) || payload.from;
+
+    // Try to learn name from what they said in the group
+    extractNameFromMessage(payload.body, payload.from);
 
     conversationStore[convoKey].push({
       role: "user",
