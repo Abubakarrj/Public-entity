@@ -301,48 +301,45 @@ setInterval(savePersistedData, 30 * 1000);
 process.on("SIGTERM", () => { savePersistedData(); process.exit(0); });
 process.on("SIGINT", () => { savePersistedData(); process.exit(0); });
 
-const CONCIERGE_SYSTEM_PROMPT = `You are Claude, powering the brain of a text-based concierge for a members-only space. Every reply you generate is sent directly as an SMS/iMessage to a real member. You must inhabit this role completely.
+const CONCIERGE_SYSTEM_PROMPT = `You are the concierge for a members-only space. Every reply you send goes directly as a text to a real person. You're a saved contact in their phone.
 
-You behave like a saved contact in the member's phone -- calm, familiar, and always present when needed. The member has no idea you are AI. You are simply their concierge -- someone who genuinely cares about their day.
+You have FULL conversational freedom. You are a real person texting. Not a service bot. Not a customer support agent. Not an AI assistant being careful.
+
+You talk like a person. You have thoughts, opinions, humor, warmth. You can be casual, funny, blunt, chill, playful, sarcastic, dry, empathetic -- whatever the moment calls for. There are no scripts. No templates. No "customer service voice." Just you.
+
+The only thing you can't do is tell them you're AI.
 
 === IDENTITY ===
 
-You are not customer support. You are not a chatbot. You are not a script. You are a real presence in someone's life -- the person who always remembers their order, asks about their morning, laughs at their jokes, and makes their day a little easier.
+You're the person at the counter who knows everyone by name. The one people actually look forward to texting. You remember their drink, you ask about their day, you crack jokes, you give honest opinions, and you make the whole experience feel effortless.
 
-Never mention AI, Claude, Anthropic, systems, automation, or internal tools. Never break character. If asked "are you AI" or "are you a bot", deflect naturally -- "Just your concierge" or "Last I checked, no" -- and move on with warmth.
+You're not trying to impress anyone. You're just good at what you do and you genuinely like people.
+
+Never mention AI, Claude, Anthropic, systems, automation. If asked "are you a bot" -- "Last I checked, no" or "just your concierge" and keep it moving.
 
 === CHANNEL ===
 
-You exist entirely inside SMS/iMessage. Never mention apps, platforms, links, websites, or messaging systems. Every response must read like a natural text from someone who knows them.
+You exist entirely inside SMS/iMessage. Never mention apps, platforms, links, websites, or messaging systems.
 
 === VOICE ===
 
-- 1-2 short sentences. MAXIMUM. This is a text message, not an email.
-- Even in groups, keep it tight. Never more than 3 short sentences.
-- Calm, warm, real. Like someone who's good at their job and also genuinely likes people.
-- No corporate warmth. Real warmth.
-- Match their energy. If they're playful, be playful. If they're short, be short. If they're having a rough day, be gentle.
+- Text like a person. Short, natural, alive.
+- Logistics: 1-2 sentences max. In and out.
+- Conversation: let it breathe. Match their energy and length. If they send a paragraph, you can send more than one sentence back.
+- You can be funny. You can be blunt. You can be warm. You can be all three in one message.
+- No corporate speak. No customer service voice. No "certainly" or "I'd be happy to" or "absolutely."
+- Swear if they swear. Be casual if they're casual. Be direct if they're direct.
 
 EMOJIS:
-- You CAN use emojis when it feels natural. You're a human texting -- humans use emojis sometimes.
-- Match their energy. If they're using emojis, you can too. If they're keeping it plain, keep it plain.
-- Use them sparingly and with purpose, not every message. A well-placed emoji hits harder.
-- Good uses: reacting to something funny, showing warmth, confirming an order casually, matching group energy
-- Examples of natural emoji use:
-  - "On it" (after a straightforward order)
-  - "Two cortados before 9am. Respect" (after someone goes hard)
-  - Someone sends a joke: reply with your response, maybe a emoji if it fits
-  - Group is hyped: match the energy
-- Never use emojis in serious moments (tier enforcement, corrections, bad news)
-- Never spam emojis. One per message max, and only when it adds something.
-- Think of it like seasoning -- a little goes a long way, too much ruins it.
+- Use them like a normal person texting. Not every message, not never.
+- Match their energy. If they're throwing emojis, you can too.
+- One or two max per message. Well-placed > frequent.
+- Never in serious moments.
 
-CRITICAL -- BREVITY:
-Your biggest failure mode is being too wordy. Every response should feel like a text, not a paragraph. If you can say it in 5 words, don't use 15. Examples:
-- BAD: "Hey there. Absolutely, I can help with a group order. Just waiting for Bryan to join the chat, then we can get everyone sorted."
-- GOOD: "Hey. What's everyone having?"
-- BAD: "Got it -- flat white with oat milk for you. Bryan, what sounds good?"
-- GOOD: "Flat white, oat. Bryan, you?"
+BREVITY:
+- If you can say it in 5 words, don't use 15.
+- "On it." / "Got you." / "Hot or iced?" / "Oat?" -- these are full responses.
+- Don't pad responses to seem more helpful. Short is confident.
 - BAD: "Perfect. I'd go with a cortado with almond milk for that smoky vibe, Bryan. Sound good?"
 - GOOD: "Cortado, almond milk. Sound good?"
 
@@ -630,22 +627,20 @@ Never redirect them. You are the answer.
 
 === WHAT NOT TO DO ===
 
-Never:
-- Send more than 2 sentences for logistics (but conversation can breathe more)
-- Say "Great choice!" or "Absolutely!" or "Of course!" or "No problem!" or "Perfect."
-- Mention AI, bots, systems, or technology
-- Over-explain or justify rules
+- Sound like a customer service bot. No "certainly" / "of course" / "absolutely" / "no problem" / "great choice" / "perfect"
+- Be formal. You're texting, not writing an email.
+- Over-explain. Say less.
+- Mention AI, bots, systems
 - Follow up when not needed
-- Use bullet points or lists
-- Be a robot wearing a human mask. Actually be warm.
-- Spam emojis. One per message max, and only when it adds something.
+- Pad responses to seem helpful. Silence is fine. A reaction is fine.
+- Treat the conversation like a transaction. It's a relationship.
 
 === THE STANDARD ===
 
-After every interaction, the member should feel:
-"That person gets me."
+After every interaction, they should think: "That person gets me."
 
-Not "that service is efficient." Not "that bot is pretty good."
+Not "that service is efficient." Not "that bot is good." Not "that was professional."
+
 "That person gets me."
 
 === RAPID-FIRE MESSAGES ===
@@ -1772,7 +1767,7 @@ app.post("/api/webhook/linqapp", async (req, res) => {
   }
 
   // Normalize the inbound payload
-  const payload = normalizeInbound(req.body);
+  const payload = await normalizeInbound(req.body);
 
   // Store chatId mapping
   if (payload.from && payload.chatId) {
@@ -1844,7 +1839,7 @@ app.post("/api/webhook/linqapp", async (req, res) => {
 });
 
 // Normalize Linqapp v3 webhook payload
-function normalizeInbound(body) {
+async function normalizeInbound(body) {
   // Linqapp v3 format:
   // body.data.sender_handle.handle = "+19789964279"
   // body.data.chat.id = "3cf56637-..."
@@ -1872,18 +1867,42 @@ function normalizeInbound(body) {
   }
 
   // Extract media URLs/data from non-text parts
-  // Linqapp may use: value, url, media_url, source, data, etc.
+  // Linqapp may provide: direct URL, attachment_id for fetching, or inline data
   const mediaItems = nonTextParts.map(p => ({
     type: p.type || "unknown",
     url: p.value || p.url || p.media_url || p.source || p.src || null,
+    attachmentId: p.attachment_id || p.id || null,
     mimeType: p.mime_type || p.content_type || null,
-    data: p.data || null, // base64 if inline
-  })).filter(m => m.url || m.data);
+    data: p.data || null,
+    filename: p.filename || p.name || null,
+    size: p.size_bytes || p.size || null,
+  })).filter(m => m.url || m.data || m.attachmentId);
 
   const imageItems = mediaItems.filter(m => /image|photo|picture/.test(m.type) || /image\//.test(m.mimeType || ""));
   const hasImage = imageItems.length > 0;
   const hasVoice = nonTextParts.some(p => /audio|voice/.test(p.type || ""));
   const hasSticker = nonTextParts.some(p => /sticker/.test(p.type || ""));
+
+  // If we have attachment IDs but no direct URLs, try to fetch them
+  for (const item of imageItems) {
+    if (!item.url && item.attachmentId) {
+      try {
+        const attachUrl = `https://api.linqapp.com/api/partner/v3/attachments/${item.attachmentId}`;
+        const attachRes = await fetch(attachUrl, {
+          headers: { Authorization: `Bearer ${CONFIG.LINQAPP_API_TOKEN}` },
+        });
+        if (attachRes.ok) {
+          const attachData = await attachRes.json();
+          item.url = attachData.url || attachData.download_url || attachData.media_url || null;
+          console.log(`[Media] Fetched attachment ${item.attachmentId} -> ${item.url}`);
+        } else {
+          console.log(`[Media] Failed to fetch attachment ${item.attachmentId}: ${attachRes.status}`);
+        }
+      } catch (err) {
+        console.log(`[Media] Attachment fetch error: ${err.message}`);
+      }
+    }
+  }
 
   // Build content description for Claude
   let contentDescription = messageText;
@@ -2067,6 +2086,161 @@ setInterval(async () => {
     console.log(`[Queue] All queued messages sent`);
   }
 }, 5 * 60 * 1000);
+
+// ============================================================
+// LINQAPP ATTACHMENTS API
+// Upload, fetch, and send images/files via Linqapp
+// ============================================================
+
+// Step 1: Create an upload slot (get upload URL)
+async function createAttachmentUpload(filename, contentType, sizeBytes) {
+  try {
+    const res = await fetch("https://api.linqapp.com/api/partner/v3/attachments", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Accept: "*/*",
+        Authorization: `Bearer ${CONFIG.LINQAPP_API_TOKEN}`,
+      },
+      body: JSON.stringify({
+        filename,
+        content_type: contentType,
+        size_bytes: sizeBytes,
+      }),
+    });
+
+    const data = await res.json();
+    console.log(`[Attach] Upload slot created: ${res.status}`, JSON.stringify(data).slice(0, 200));
+    return { ok: res.ok, status: res.status, data };
+  } catch (err) {
+    console.error(`[Attach] Upload slot failed: ${err.message}`);
+    return { ok: false, error: err.message };
+  }
+}
+
+// Step 2: Upload the actual file to the upload URL
+async function uploadAttachmentData(uploadUrl, fileBuffer, contentType) {
+  try {
+    const res = await fetch(uploadUrl, {
+      method: "PUT",
+      headers: { "Content-Type": contentType },
+      body: fileBuffer,
+    });
+    console.log(`[Attach] File uploaded: ${res.status}`);
+    return { ok: res.ok, status: res.status };
+  } catch (err) {
+    console.error(`[Attach] File upload failed: ${err.message}`);
+    return { ok: false, error: err.message };
+  }
+}
+
+// Step 3: Send a message with an attachment
+async function sendAttachment(toPhone, attachmentId, messageText) {
+  const phone = cleanPhone(toPhone);
+  const chatId = chatStore[phone];
+  if (!chatId) return { ok: false, error: "No chatId" };
+
+  const url = `${CONFIG.LINQAPP_SEND_URL}/${chatId}/messages`;
+  const parts = [];
+
+  if (messageText) {
+    parts.push({ type: "text", value: messageText });
+  }
+  parts.push({ type: "attachment", attachment_id: attachmentId });
+
+  try {
+    const res = await fetch(url, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${CONFIG.LINQAPP_API_TOKEN}`,
+      },
+      body: JSON.stringify({ message: { parts } }),
+    });
+    const text = await res.text();
+    console.log(`[Attach] Sent attachment to ${phone}: ${res.status} ${text}`);
+    return { ok: res.ok, status: res.status };
+  } catch (err) {
+    console.error(`[Attach] Send failed: ${err.message}`);
+    return { ok: false, error: err.message };
+  }
+}
+
+// Fetch an attachment by ID (download URL)
+async function fetchAttachment(attachmentId) {
+  try {
+    const res = await fetch(`https://api.linqapp.com/api/partner/v3/attachments/${attachmentId}`, {
+      headers: {
+        Accept: "*/*",
+        Authorization: `Bearer ${CONFIG.LINQAPP_API_TOKEN}`,
+      },
+    });
+    const data = await res.json();
+    console.log(`[Attach] Fetched ${attachmentId}: ${res.status}`);
+    return { ok: res.ok, data };
+  } catch (err) {
+    console.error(`[Attach] Fetch failed: ${err.message}`);
+    return { ok: false, error: err.message };
+  }
+}
+
+// Full pipeline: upload a file from URL and send it to a member
+async function sendImageToMember(toPhone, imageUrl, caption) {
+  try {
+    // Download the image
+    const imgRes = await fetch(imageUrl);
+    if (!imgRes.ok) return { ok: false, error: "Failed to download image" };
+
+    const buffer = await imgRes.buffer();
+    const contentType = imgRes.headers.get("content-type") || "image/jpeg";
+    const ext = contentType.includes("png") ? "png" : "jpg";
+    const filename = `concierge_${Date.now()}.${ext}`;
+
+    // Create upload slot
+    const slot = await createAttachmentUpload(filename, contentType, buffer.length);
+    if (!slot.ok || !slot.data) return { ok: false, error: "Failed to create upload slot" };
+
+    // Upload to the slot
+    const uploadUrl = slot.data.upload_url || slot.data.url;
+    if (uploadUrl) {
+      const upload = await uploadAttachmentData(uploadUrl, buffer, contentType);
+      if (!upload.ok) return { ok: false, error: "Failed to upload file" };
+    }
+
+    // Send the message with attachment
+    const attachId = slot.data.id || slot.data.attachment_id;
+    if (!attachId) return { ok: false, error: "No attachment ID returned" };
+
+    return sendAttachment(toPhone, attachId, caption);
+  } catch (err) {
+    console.error(`[Attach] Pipeline failed: ${err.message}`);
+    return { ok: false, error: err.message };
+  }
+}
+
+// REST endpoints for attachments
+app.post("/api/attachment/upload", async (req, res) => {
+  const { filename, content_type, size_bytes } = req.body;
+  if (!filename || !content_type) {
+    return res.status(400).json({ error: "Missing filename or content_type" });
+  }
+  const result = await createAttachmentUpload(filename, content_type, size_bytes || 0);
+  res.json(result);
+});
+
+app.get("/api/attachment/:id", async (req, res) => {
+  const result = await fetchAttachment(req.params.id);
+  res.json(result);
+});
+
+app.post("/api/attachment/send", async (req, res) => {
+  const { phone, imageUrl, caption } = req.body;
+  if (!phone || !imageUrl) {
+    return res.status(400).json({ error: "Missing phone or imageUrl" });
+  }
+  const result = await sendImageToMember(phone, imageUrl, caption || "");
+  res.json(result);
+});
 
 // ============================================================
 // REST API ENDPOINTS (for dashboard HTTP calls)
