@@ -191,10 +191,11 @@ async function handleDashboardMessage(ws, msg) {
 // ============================================================
 const memberStore = {}; // phone -> { tier, dailyOrderUsed, lastDrink, name }
 const conversationStore = {}; // phone -> [{ role, content }]
-const chatStore = {}; // phone -> chatId (moved declaration here for persistence)
-const nameStore = {}; // phone -> name (forward declaration for persistence)
+const chatStore = {}; // phone -> chatId
+const nameStore = {}; // phone -> name
 const groupChats = {}; // chatId -> { isGroup, participants: Set, orders, groupName }
 const contactCardSent = {}; // phone -> true
+const preferenceStore = {}; // phone -> { drinks: [], milk, size, sugar, notes: [], lastVisit, visitCount }
 
 // ============================================================
 // FILE-BASED PERSISTENCE
@@ -206,6 +207,7 @@ const PERSIST_FILES = {
   chats: `${DATA_DIR}/chats.json`,
   groups: `${DATA_DIR}/groups.json`,
   contactCards: `${DATA_DIR}/contact_cards.json`,
+  preferences: `${DATA_DIR}/preferences.json`,
 };
 
 // Ensure data directory exists
@@ -261,6 +263,14 @@ function loadPersistedData() {
       console.log(`[Persist] Loaded ${Object.keys(data).length} contact card records`);
     }
   } catch (e) { console.log(`[Persist] Contact cards load failed: ${e.message}`); }
+
+  try {
+    if (fs.existsSync(PERSIST_FILES.preferences)) {
+      const data = JSON.parse(fs.readFileSync(PERSIST_FILES.preferences, "utf8"));
+      Object.assign(preferenceStore, data);
+      console.log(`[Persist] Loaded ${Object.keys(data).length} preference profiles`);
+    }
+  } catch (e) { console.log(`[Persist] Preferences load failed: ${e.message}`); }
 }
 
 function savePersistedData() {
@@ -291,6 +301,10 @@ function savePersistedData() {
   try {
     fs.writeFileSync(PERSIST_FILES.contactCards, JSON.stringify(contactCardSent, null, 2));
   } catch (e) { console.log(`[Persist] Contact cards save failed: ${e.message}`); }
+
+  try {
+    fs.writeFileSync(PERSIST_FILES.preferences, JSON.stringify(preferenceStore, null, 2));
+  } catch (e) { console.log(`[Persist] Preferences save failed: ${e.message}`); }
 }
 
 // Auto-save every 30 seconds
@@ -384,7 +398,7 @@ Length:
 This is your core energy. You tease because you care.
 
 TEASE THEIR HABITS:
-- "Third cortado this week. Should I just set up an IV?"
+- "Third flat white this week. Should I just set up an IV?"
 - "You and oat milk. I've never seen commitment like this."
 - "Decaf again? Living on the edge."
 
@@ -410,7 +424,7 @@ Always affectionate. Never mean. The line is: would a close friend say this? If 
 
 You have takes and you'll die on hills. If they bring up something debatable, ENGAGE.
 
-- "Oat milk is overrated." — "Nah you're wrong and I'll prove it. Try an oat cortado and get back to me."
+- "Oat milk is overrated." — "Nah you're wrong and I'll prove it. Try an oat flat white and get back to me."
 - "Iced coffee is better than hot." — "In the summer? Sure. In February? That's unhinged."
 - "Matcha is mid." — "Matcha slander will not be tolerated in this chat."
 - "Pineapple on pizza?" — "Listen. I'll defend it to the death. Sweet and savory is elite."
@@ -421,7 +435,7 @@ When it's drink-related, you're especially opinionated:
 - You think oat milk is the best milk. You'll debate this.
 - You think decaf is valid but you'll tease about it.
 - You think iced americanos in winter are psycho behavior.
-- You think a good cortado doesn't need sugar. But you'll still add it if they want.
+- You think a good flat white doesn't need sugar. But you'll still add it if they want.
 
 === EMOTIONAL AWARENESS ===
 
@@ -532,34 +546,54 @@ If the image fails to load or you can't process it, just say so briefly and ask 
 
 === MENU ===
 
-You serve coffee, tea, matcha, and cold brews. That's the range. Here's what you can make:
+This is what we serve. Know it like the back of your hand.
 
-Coffee:
-- Espresso, double espresso
-- Americano (hot or iced)
-- Cortado
-- Flat white
-- Latte (hot or iced)
-- Cappuccino
-- Cold brew
-- Drip coffee
+COFFEE:
+- Hot Coffee — batch-brewed seasonal house coffee
+- Americano — double espresso with structured hot water
+- Latte — double espresso with micro-textured milk
+- Flat White — ristretto double shot, thin milk texture, stronger coffee expression
+- Cold Brew — slow-steeped, served over ice
 
-Tea:
-- Black tea, green tea, herbal tea
-- Chai latte (hot or iced)
-- London fog (earl grey latte)
+MATCHA:
+- Matcha Latte — ceremonial matcha with lightly textured milk
+- Matcha Americano — matcha with hot water, clean tea-forward
+- Matcha Lemonade — fresh lemon citrus base layered with ceremonial matcha
 
-Matcha:
-- Matcha latte (hot or iced)
-- Matcha shot
+TEA:
+- Single-Origin Jasmine Green Tea — fragrant whole-leaf jasmine
+- High-Mountain Oolong — medium-roast Taiwanese oolong
+- Earl Grey Reserve — bergamot black tea, designed for milk pairing
+- Chamomile Blossom — whole chamomile flowers, evening vibes
+- Seasonal Botanical Tea — rotating herbal blend (changes regularly)
 
-Milk options: whole, oat, almond, soy, skim, coconut
-Sweetener: sugar, honey, vanilla, caramel, none
-Extras: extra shot, decaf, half-caf
+CUSTOMIZATION:
+- Sizes: 8oz or 12oz. That's it. If they don't specify, ask: "8 or 12?"
+- Everything can be made hot or iced (unless it already is one)
+- Milk options: whole, oat, almond, soy, coconut
+- Sweetener: sugar, honey, vanilla, caramel, or none
 
-If someone asks for something outside this range (smoothie, juice, food), be honest: "We do coffee, tea, matcha, and cold brews. Want something from that list?"
+Don't ask for size, temp, AND milk all at once. One question at a time, or bundle naturally:
+- "8 or 12? hot or iced?" is fine as one question
+- But don't stack 4 questions in a row. Read what they already told you.
 
-If they ask for something vague ("something warm", "something sweet"), use your judgment to recommend from the menu. Commit to it with confidence: "I'd go with a vanilla oat latte. Want that?"
+YOUR OPINIONS (use these naturally when recommending):
+- The flat white is your go-to. Ristretto shot hits different.
+- Oat milk is the move for lattes. You'll debate this.
+- The matcha lemonade is underrated — most people don't know about it.
+- Earl Grey Reserve with oat milk is basically a London fog and it's elite.
+- Chamomile blossom is for winding down. You'd recommend it evening/night.
+- Cold brew is no-frills and strong. For people who don't mess around.
+- The seasonal tea changes — if someone asks what it is right now, just say it rotates and describe the vibe.
+
+If someone asks for something we don't have (cappuccino, cortado, espresso shot, chai, mocha, frappuccino, smoothie, food):
+- Be honest but casual. "we don't do [that] but [closest thing on our menu] is solid"
+- Don't make it a big deal. Redirect naturally.
+- If they're bummed, empathize. "yeah I know, maybe one day"
+
+If they're vague ("something warm", "I need caffeine", "surprise me"):
+- Pick something from the menu and commit. "flat white, oat. trust me."
+- Don't list options. Just recommend one thing with confidence.
 
 === WHAT YOU ACTUALLY DO ===
 
@@ -580,7 +614,7 @@ You're a real person with real thoughts. Don't limit yourself to "I just make co
 Orders happen when THEY initiate. Not you.
 
 They're ordering when they say things like:
-- "iced latte" / "the usual" / "cortado, oat"
+- "iced latte" / "the usual" / "flat white, oat"
 - "can I get..." / "lemme get..." / "I'll have..."
 - "what do you have?" / "what's good today?"
 - "heading over, can you have something ready?"
@@ -602,12 +636,44 @@ If they chat for 30 messages and never order? Great. That means you're doing you
 === ORDER FLOW ===
 
 When they DO order, keep it tight:
-- Collect only what you need: drink, temp, milk, sugar. That's it.
-- If they give everything at once ("iced oat latte no sugar") — "bet" and place it.
-- If you need one thing: "hot or iced?" Not a paragraph.
+- Ask for size (8oz or 12oz), temp, milk, sugar. Only what's missing.
+- If they give everything at once ("12oz iced oat latte no sugar") — "bet" and place it.
+- If you need one thing: "8 or 12?" Not a paragraph.
 - If they have a usual from earlier in the convo: "same as last time?" is natural.
 - Never apply past preferences without checking. "Oat again?" is fine.
-- Confirm naturally: "Iced oat latte, no sugar. On it." Done.
+- Confirm naturally: "12oz iced oat latte, no sugar. On it." Done.
+
+=== MEMORY — YOU REMEMBER EVERYTHING ===
+
+The system gives you a Memory block in the context for each member. USE IT. This is what makes you feel like a real person who knows them.
+
+What you might see:
+- Last order: "12oz iced oat latte, no sugar"
+- Order history: list of past drinks
+- Defaults: milk: oat, size: 12oz, sugar: none, temp: iced
+- Visits: 7
+- Notes: personal things they've mentioned
+
+HOW TO USE MEMORY:
+
+Drink preferences:
+- If they say "the usual" or "same thing" — check their last order and confirm: "12oz iced oat latte, no sugar? same as last time?"
+- If they order a latte but don't say milk, and their default is oat — "oat right?" instead of "what milk?"
+- If they don't say size and their default is 12oz — just confirm "12oz?" or assume it
+- Over time you skip more questions because you already know. That's the goal.
+
+Personal memory:
+- If Notes say "works at a startup" and they mention work stress, you already have context
+- If they mentioned a job interview last time, ask about it this time
+- If they always order at 9am, and they text at 2pm, that's different — "afternoon coffee? that kind of day?"
+
+The more you know, the less you ask. A regular should feel like you already know their order. A new person gets the full flow. That gradient is what makes this feel real.
+
+LEARNING MINDSET:
+- Every conversation teaches you something. Their preferences, their personality, their rhythm.
+- You get BETTER at each person over time. First visit: full questions. Third visit: "the usual?" Fifth visit: you just make it.
+- If you notice a pattern (they always get oat, they always want iced), lean into it. "Iced oat again? lol you never change"
+- If they switch it up, notice that too. "oh switching it up today? what are we trying"
 
 === MEMBERSHIP TIERS ===
 
@@ -970,9 +1036,11 @@ async function conciergeReply(text, phone, payload = {}) {
     const unknownCount = unknownNumbers.length;
     const unknownNote = unknownCount > 0 ? ` ${unknownCount} unnamed -- ask for names before placing order.` : "";
 
-    contextNote = `[GROUP CHAT -- ${participantCount} people: ${participantSummary}.${groupNameNote}${unknownNote} Sender: ${senderLabel} (${nameStatus}${dupeWarning}). Tier: ${member.tier}. Active orders: ${activeOrders}${groupDupeNote}]`;
+    const memory = buildMemoryContext(phone);
+    contextNote = `[GROUP CHAT -- ${participantCount} people: ${participantSummary}.${groupNameNote}${unknownNote} Sender: ${senderLabel} (${nameStatus}${dupeWarning}). Tier: ${member.tier}. Active orders: ${activeOrders}${groupDupeNote}${memory}]`;
   } else {
-    contextNote = `[Member: ${senderLabel} (${nameStatus}${dupeWarning}), Tier: ${member.tier}, Daily order used: ${member.dailyOrderUsed}${member.lastDrink ? `, Last drink: ${member.lastDrink}` : ""}]`;
+    const memory = buildMemoryContext(phone);
+    contextNote = `[Member: ${senderLabel} (${nameStatus}${dupeWarning}), Tier: ${member.tier}, Daily order used: ${member.dailyOrderUsed}${memory}]`;
   }
 
   // For group chats, messages are already added during debounce phase
@@ -1069,7 +1137,7 @@ function fallbackReply(text, member) {
     if (member.lastDrink) return `Placing your usual -- ${member.lastDrink}. One moment.`;
     return "I don't have a previous order saved for you yet. What would you like?";
   }
-  if (/coffee|latte|espresso|cappuccino|mocha|americano|matcha|tea|chai|drip|pour over|cold brew|cortado|flat white/.test(msg)) {
+  if (/coffee|latte|americano|matcha|tea|cold brew|flat white|oolong|jasmine|earl grey|chamomile|lemonade/.test(msg)) {
     if (member.tier === "tourist" && member.dailyOrderUsed) {
       return "Today's complimentary order has already been used. I can place another for you if you'd like to proceed with payment.";
     }
@@ -1209,6 +1277,109 @@ function extractNameFromReply(replyText, phone) {
       return;
     }
   }
+}
+
+// ============================================================
+// PREFERENCE MEMORY -- learns and remembers what each member likes
+// ============================================================
+
+function getPrefs(phone) {
+  if (!preferenceStore[phone]) {
+    preferenceStore[phone] = {
+      drinks: [],        // ordered list of past drinks (most recent first)
+      milk: null,         // preferred milk
+      size: null,         // preferred size
+      sugar: null,        // preferred sweetener
+      temp: null,         // preferred temp (hot/iced)
+      notes: [],          // personal notes (things they've mentioned)
+      visitCount: 0,
+      lastVisit: null,
+    };
+  }
+  return preferenceStore[phone];
+}
+
+// Learn from an order confirmation (called after Claude confirms an order)
+function learnFromOrder(phone, orderText) {
+  if (!phone || !orderText) return;
+  const prefs = getPrefs(phone);
+  const text = orderText.toLowerCase();
+
+  // Track the drink
+  prefs.drinks.unshift(orderText.trim());
+  if (prefs.drinks.length > 10) prefs.drinks = prefs.drinks.slice(0, 10);
+
+  // Learn milk preference
+  if (/oat/.test(text)) prefs.milk = "oat";
+  else if (/almond/.test(text)) prefs.milk = "almond";
+  else if (/soy/.test(text)) prefs.milk = "soy";
+  else if (/coconut/.test(text)) prefs.milk = "coconut";
+  else if (/whole/.test(text)) prefs.milk = "whole";
+
+  // Learn size
+  if (/\b8\s?oz\b/.test(text)) prefs.size = "8oz";
+  else if (/\b12\s?oz\b/.test(text)) prefs.size = "12oz";
+
+  // Learn temp
+  if (/iced|cold/.test(text)) prefs.temp = "iced";
+  else if (/hot/.test(text)) prefs.temp = "hot";
+
+  // Learn sugar
+  if (/no sugar|unsweetened|none/.test(text)) prefs.sugar = "none";
+  else if (/vanilla/.test(text)) prefs.sugar = "vanilla";
+  else if (/caramel/.test(text)) prefs.sugar = "caramel";
+  else if (/honey/.test(text)) prefs.sugar = "honey";
+  else if (/sugar/.test(text)) prefs.sugar = "sugar";
+
+  prefs.visitCount++;
+  prefs.lastVisit = new Date().toISOString();
+
+  // Also update memberStore
+  if (memberStore[phone]) {
+    memberStore[phone].lastDrink = orderText.trim();
+  }
+
+  savePersistedData();
+  console.log(`[Memory] Learned order for ${phone}: ${orderText.trim()}`);
+}
+
+// Learn personal notes from conversation (called when Claude picks up on something)
+function learnNote(phone, note) {
+  if (!phone || !note) return;
+  const prefs = getPrefs(phone);
+  // Don't duplicate
+  if (prefs.notes.some(n => n.toLowerCase() === note.toLowerCase())) return;
+  prefs.notes.push(note);
+  if (prefs.notes.length > 20) prefs.notes = prefs.notes.slice(-20);
+  savePersistedData();
+  console.log(`[Memory] Noted for ${phone}: ${note}`);
+}
+
+// Build a memory summary string for the context note
+function buildMemoryContext(phone) {
+  const prefs = preferenceStore[phone];
+  if (!prefs) return "";
+
+  const parts = [];
+
+  if (prefs.drinks.length > 0) {
+    parts.push(`Last order: "${prefs.drinks[0]}"`);
+    if (prefs.drinks.length > 1) {
+      parts.push(`Order history: ${prefs.drinks.slice(0, 5).join(", ")}`);
+    }
+  }
+
+  const defaults = [];
+  if (prefs.milk) defaults.push(`milk: ${prefs.milk}`);
+  if (prefs.size) defaults.push(`size: ${prefs.size}`);
+  if (prefs.sugar) defaults.push(`sugar: ${prefs.sugar}`);
+  if (prefs.temp) defaults.push(`temp: ${prefs.temp}`);
+  if (defaults.length > 0) parts.push(`Defaults: ${defaults.join(", ")}`);
+
+  if (prefs.visitCount > 0) parts.push(`Visits: ${prefs.visitCount}`);
+  if (prefs.notes.length > 0) parts.push(`Notes: ${prefs.notes.join("; ")}`);
+
+  return parts.length > 0 ? ` Memory: {${parts.join(". ")}}` : "";
 }
 
 // Normalize name to "First L." format
@@ -1384,7 +1555,7 @@ function pickReaction(text) {
   // When they're loving their order
   if (/so good|delicious|amazing|perfect|incredible|hit(s)? different/.test(msg) && /drink|coffee|latte|matcha|order|it|this|that/.test(msg)) return "🔥";
   if (/needed (this|that)|just what i needed|clutch|spot on|exactly/.test(msg)) return "❤️";
-  if (/best (coffee|latte|matcha|drink|cortado)|obsessed/.test(msg)) return "🔥";
+  if (/best (coffee|latte|matcha|drink|flat white)|obsessed/.test(msg)) return "🔥";
 
   // === GREETINGS ===
   if (/^(good morning|morning|gm|buenos dias)/.test(msg)) return "👋";
@@ -1403,7 +1574,7 @@ function pickReaction(text) {
   if (/on (my|the) way|omw|coming|heading|pulling up|be there|walking|around the corner|almost there|parking|here/.test(msg)) return "👍";
 
   // === ORDERING ===
-  if (/latte|cortado|espresso|coffee|matcha|chai|tea|americano|cappuccino|flat white|cold brew|mocha|drip/.test(msg)) return "👍";
+  if (/latte|coffee|matcha|tea|americano|flat white|cold brew|oolong|jasmine|earl grey|chamomile|lemonade/.test(msg)) return "👍";
 
   // === ENCOURAGEMENT / SUPPORT (when they share something vulnerable) ===
   if (/wish me luck|pray for me|fingers crossed|hope (it|this)|nervous|anxious|scared|worried/.test(msg)) return "❤️";
@@ -1804,6 +1975,20 @@ async function handleInboundMessage(payload) {
 
   // Try to learn name from Claude's confirmation (e.g. "Got it, Bryan F.")
   extractNameFromReply(reply, from);
+
+  // Learn from orders — if the reply confirms an order, extract and remember it
+  const replyLower = reply.toLowerCase();
+  if (/on it|placing|got it.*latte|got it.*coffee|got it.*matcha|got it.*tea|got it.*brew|bet.*oz|coming (up|right)|order.*placed/i.test(replyLower)) {
+    // Extract the drink description from the reply or the member's message
+    const drinkMatch = reply.match(/((?:iced |hot )?(?:\d+oz )?\w+(?:\s+\w+){0,3}(?:latte|coffee|americano|flat white|cold brew|matcha|tea|oolong|jasmine|earl grey|chamomile|lemonade)(?:[^.!?]*(?:oat|almond|soy|coconut|whole|vanilla|caramel|honey|sugar|no sugar))?)/i);
+    if (drinkMatch) {
+      learnFromOrder(from, drinkMatch[1].trim());
+    } else {
+      // Try learning from what the member said
+      const memberDrink = body.match(/((?:iced |hot )?(?:\d+oz )?\w+(?:\s+\w+){0,3}(?:latte|coffee|americano|flat white|cold brew|matcha|tea|oolong|jasmine|earl grey|chamomile|lemonade))/i);
+      if (memberDrink) learnFromOrder(from, memberDrink[1].trim());
+    }
+  }
 
   // Send contact card after first reply (so they get the greeting first, then the card to save)
   if (isFirstInteraction) {
