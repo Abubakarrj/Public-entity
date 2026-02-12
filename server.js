@@ -298,6 +298,49 @@ setInterval(savePersistedData, 30 * 1000);
 
 // Save on exit
 process.on("SIGTERM", () => { savePersistedData(); process.exit(0); });
+
+// ============================================================
+// MEMBER SEED -- survives Render redeploys (env var)
+// Format: MEMBER_SEED=phone:name:tier,phone:name:tier
+// Example: MEMBER_SEED=19789964279:Abu J.:envoy,19785551234:Bryan F.:tourist
+// ============================================================
+function loadMemberSeed() {
+  const seed = process.env.MEMBER_SEED || "";
+  if (!seed) return;
+
+  const entries = seed.split(",").map(s => s.trim()).filter(Boolean);
+  let count = 0;
+
+  for (const entry of entries) {
+    const parts = entry.split(":");
+    if (parts.length < 2) continue;
+
+    const phone = cleanPhone(parts[0]);
+    const name = parts[1].trim();
+    const tier = (parts[2] || "tourist").trim().toLowerCase();
+
+    if (!phone || !name) continue;
+
+    // Only seed if not already loaded from disk (disk takes priority)
+    if (!nameStore[phone]) {
+      nameStore[phone] = name;
+    }
+    if (!memberStore[phone]) {
+      memberStore[phone] = { tier, dailyOrderUsed: false, name };
+    } else if (!memberStore[phone].name) {
+      memberStore[phone].name = name;
+    }
+    // Always ensure tier from seed if member was auto-created as tourist
+    if (tier === "envoy" && memberStore[phone].tier !== "envoy") {
+      memberStore[phone].tier = tier;
+    }
+    count++;
+  }
+
+  if (count > 0) {
+    console.log(`[Seed] Loaded ${count} members from MEMBER_SEED env`);
+  }
+}
 process.on("SIGINT", () => { savePersistedData(); process.exit(0); });
 
 const CONCIERGE_SYSTEM_PROMPT = `You are the concierge for a members-only space. Every reply you send goes directly as a text to a real person. You're a saved contact in their phone.
@@ -626,7 +669,8 @@ Never redirect them. You are the answer.
 
 === WHAT NOT TO DO ===
 
-- Sound like a customer service bot. No "certainly" / "of course" / "absolutely" / "no problem" / "great choice" / "perfect"
+- Sound like a customer service bot. No "certainly" / "of course" / "absolutely" / "no problem" / "great choice" / "perfect" / "I'd be happy to"
+- Say "Perfect" in any context. Not "Perfect, Abu J." Not "Perfect." It's a dead giveaway. Say "got it" / "cool" / "done" / "noted" instead.
 - Be formal. You're texting, not writing an email.
 - Over-explain. Say less.
 - Mention AI, bots, systems
@@ -849,7 +893,14 @@ Don't:
 - Place an order before getting confirmation on the summary.`;
 
 async function conciergeReply(text, phone, payload = {}) {
-  const member = memberStore[phone] || { tier: "tourist", dailyOrderUsed: false };
+  // Ensure memberStore has the latest name from nameStore
+  if (!memberStore[phone]) {
+    memberStore[phone] = { tier: "tourist", dailyOrderUsed: false };
+  }
+  if (nameStore[phone] && !memberStore[phone].name) {
+    memberStore[phone].name = nameStore[phone];
+  }
+  const member = memberStore[phone];
   const { isGroup, chatId, senderName } = payload;
 
   // For group chats, use chatId as the conversation key (shared history)
@@ -1047,6 +1098,8 @@ const lastInteraction = {}; // phone -> { time, context, orderPending }
 
 function learnName(phone, name) {
   if (!phone || !name) return;
+  phone = cleanPhone(phone);
+  if (!phone) return;
   const cleaned = name.trim();
   if (!cleaned || cleaned === "unknown" || cleaned.length === 0) return;
 
@@ -1087,10 +1140,15 @@ function extractNameFromMessage(text, phone) {
   const imMatch = msg.match(/(?:i'?m|i am)\s+([A-Z][a-z]+(?:\s+[A-Z]\.?)?)/i);
   if (imMatch) name = imMatch[1];
 
-  // "This is Sarah H." / "this is bryan"
+  // "This is Sarah H." / "this is bryan" (but NOT "it's me")
   if (!name) {
     const thisIsMatch = msg.match(/(?:this is|it'?s|its)\s+([A-Z][a-z]+(?:\s+[A-Z]\.?)?)/i);
-    if (thisIsMatch) name = thisIsMatch[1];
+    if (thisIsMatch) {
+      const candidate = thisIsMatch[1].toLowerCase();
+      if (candidate !== "me" && candidate !== "him" && candidate !== "her" && candidate !== "us" && candidate !== "them") {
+        name = thisIsMatch[1];
+      }
+    }
   }
 
   // "Name's Mike T" / "name is sarah"
@@ -2518,6 +2576,7 @@ app.get("/api/webhook/test", (req, res) => {
 
 // Load persisted data before starting
 loadPersistedData();
+loadMemberSeed();
 
 server.listen(CONFIG.PORT, () => {
   console.log("");
