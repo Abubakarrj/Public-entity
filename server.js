@@ -1335,54 +1335,96 @@ async function reactToMessage(messageId, reaction) {
 }
 
 // Pick a contextual reaction based on what the member said
+// iMessage tapbacks: ❤️ 👍 👎 😂 ‼️ ❓
+// Custom emoji reactions if Linqapp supports them: 🔥 👋 🙏 💪 😢 🎉
 function pickReaction(text) {
   const msg = text.toLowerCase().trim();
 
-  // Funny / jokes / lol
-  if (/lol|lmao|haha|😂|🤣|joke|funny|dead|💀|hilarious|wild|insane|crazy|no way/.test(msg)) return "😂";
+  // === PRAISE / COMPLIMENTS / LOVE ===
+  // When they show love, love them back
+  if (/you('re| are) (the best|amazing|awesome|incredible|great|a legend|goated|so good)/.test(msg)) return "❤️";
+  if (/love (this|you|it|that)|i love|we love|loving/.test(msg)) return "❤️";
+  if (/best (concierge|service|place|spot|coffee)|this place is|y'?all are/.test(msg)) return "❤️";
+  if (/goat|mvp|legend|king|queen|hero|clutch|lifesaver|saved (my|the)/.test(msg)) return "❤️";
+  if (/thank(s| you)|thx|appreciate|grateful|means a lot|so sweet|too kind/.test(msg)) return "❤️";
+  if (/🥰|🫶|💕|💗|💖|😍|🥹/.test(msg)) return "❤️";
 
-  // Gratitude / appreciation
-  if (/thanks|thank you|thx|appreciate|cheers|you('re| are) the best|lifesaver|goat/.test(msg)) return "❤️";
+  // === JOKES / FUNNY / HUMOR ===
+  // When something's funny, laugh
+  if (/lol|lmao|lmfao|haha|hehe|😂|🤣|💀|dead|i('m| am) dead|dying|screaming/.test(msg)) return "😂";
+  if (/hilarious|wild|insane|crazy|no way|bruh|bruhhh|stop|😭/.test(msg)) return "😂";
+  if (/i can'?t|you('re| are) (funny|wild|crazy|too much)/.test(msg)) return "😂";
+  if (/that'?s (jokes|comedy|gold|wild|insane)/.test(msg)) return "😂";
+  if (/what the|bro what|who does that|the audacity/.test(msg)) return "😂";
 
-  // Greetings / warmth
-  if (/good morning|good afternoon|good evening|morning|gm/.test(msg)) return "👋";
+  // === SADNESS / TOUGH TIMES / EMPATHY ===
+  // When they're down, show heart
+  if (/rough (day|week|morning)|bad (day|week|mood)|tough (day|week|one)/.test(msg)) return "❤️";
+  if (/stressed|exhausted|tired|drained|burnt out|burned out|over it|so done/.test(msg)) return "❤️";
+  if (/ugh|ughhh|not (great|good|my day)|struggling|overwhelmed/.test(msg)) return "❤️";
+  if (/miss(ing)?|lonely|sad|down|heartbroken|broke up|breakup/.test(msg)) return "❤️";
+  if (/😔|😞|😢|😭|🥺|💔/.test(msg)) return "❤️";
+  if (/hate (this|my|it|today|mondays)|worst|horrible|terrible/.test(msg)) return "❤️";
 
-  // Excitement / hype / confirmation
-  if (/amazing|awesome|let'?s go|fire|🔥|yesss|hell yeah|hyped|excited|can'?t wait|finally/.test(msg)) return "🔥";
+  // === CELEBRATION / HYPE / CHEERING ===
+  // When they're up, match the energy
+  if (/let'?s (go|goo+)|les go|lfg|yesss+|hell yeah|oh yeah/.test(msg)) return "🔥";
+  if (/amazing|awesome|incredible|unreal|insane|fire|🔥/.test(msg)) return "🔥";
+  if (/got (the|a) (job|promotion|raise|offer|deal)|i got in|accepted|passed/.test(msg)) return "🔥";
+  if (/won|winning|crushed it|nailed it|killed it|smashed it/.test(msg)) return "🔥";
+  if (/hyped|excited|pumped|can'?t wait|so ready|bring it/.test(msg)) return "🔥";
+  if (/celebrate|celebrating|party|birthday|anniversary|engaged|married/.test(msg)) return "🔥";
+  if (/🎉|🥳|🎊|💪|🏆|👑/.test(msg)) return "🔥";
+  if (/finally|about time|it'?s happening|big day|today'?s the day/.test(msg)) return "🔥";
+  if (/good (news|vibes)|great news|guess what/.test(msg)) return "🔥";
 
-  // Sad / bad day / empathy
-  if (/rough day|bad day|tough|stressed|ugh|tired|exhausted|not great|struggling/.test(msg)) return "❤️";
+  // === FOOD / DRINK REACTIONS ===
+  // When they're loving their order
+  if (/so good|delicious|amazing|perfect|incredible|hit(s)? different/.test(msg) && /drink|coffee|latte|matcha|order|it|this|that/.test(msg)) return "🔥";
+  if (/needed (this|that)|just what i needed|clutch|spot on|exactly/.test(msg)) return "❤️";
+  if (/best (coffee|latte|matcha|drink|cortado)|obsessed/.test(msg)) return "🔥";
 
-  // Food/drink love
-  if (/so good|delicious|love it|best|hit(s)? different|needed (this|that)|clutch/.test(msg)) return "🔥";
+  // === GREETINGS ===
+  if (/^(good morning|morning|gm|buenos dias)/.test(msg)) return "👋";
+  if (/^(good afternoon|good evening|evening)/.test(msg)) return "👋";
+  if (/^(hey|hi|hello|yo|sup|what'?s up|howdy)[\s!?.]*$/i.test(msg)) return "👋";
 
-  // Agreement / casual acknowledgment
-  if (/^(ok|cool|bet|got it|sure|yep|nice|k|word|alright|sounds good|works|dope|solid|facts)$/i.test(msg)) return "👍";
+  // === GOODBYES ===
+  if (/bye|later|see (you|ya)|peace|dip|heading out|gotta go|night|goodnight|gn/.test(msg)) return "👋";
+  if (/have a good|enjoy|take care|catch you/.test(msg)) return "👋";
 
-  // Ordering / decisions made
-  if (/^(yes|yeah|yep|yup|go ahead|do it|place it|let'?s do it|send it|confirmed)$/i.test(msg)) return "👍";
+  // === AGREEMENT / CONFIRMATION ===
+  if (/^(ok|okay|cool|bet|got it|sure|yep|yup|nice|k|word|alright|sounds good|works|dope|solid|facts|copy|heard|noted|for sure|fosho|absolutely)[\s!.]*$/i.test(msg)) return "👍";
+  if (/^(yes|yeah|yep|yup|go ahead|do it|place it|let'?s do it|send it|confirmed|go for it|pull the trigger)[\s!.]*$/i.test(msg)) return "👍";
 
-  // Arriving / on the way
-  if (/on my way|omw|coming|heading|pulling up|be there|walking/.test(msg)) return "👍";
+  // === ARRIVING / ON THE WAY ===
+  if (/on (my|the) way|omw|coming|heading|pulling up|be there|walking|around the corner|almost there|parking|here/.test(msg)) return "👍";
 
-  // Compliments to the concierge
-  if (/you('re| are) (great|awesome|the best|amazing|goated)|love this|so helpful/.test(msg)) return "❤️";
+  // === ORDERING ===
+  if (/latte|cortado|espresso|coffee|matcha|chai|tea|americano|cappuccino|flat white|cold brew|mocha|drip/.test(msg)) return "👍";
 
-  // Bye / leaving
-  if (/bye|later|see you|peace|dip|out|heading out|gotta go/.test(msg)) return "👋";
+  // === ENCOURAGEMENT / SUPPORT (when they share something vulnerable) ===
+  if (/wish me luck|pray for me|fingers crossed|hope (it|this)|nervous|anxious|scared|worried/.test(msg)) return "❤️";
+  if (/interview|exam|test|presentation|big meeting|first date/.test(msg)) return "🔥";
 
-  // Orders -- acknowledge them
-  if (/latte|cortado|espresso|coffee|matcha|chai|tea|americano|cappuccino|flat white|cold brew|mocha/.test(msg)) return "👍";
+  // === SINGLE EMOJI MESSAGES -- mirror the energy ===
+  if (/^(❤️|🫶|💕|😘|🥰)$/.test(msg.trim())) return "❤️";
+  if (/^(😂|🤣|💀)$/.test(msg.trim())) return "😂";
+  if (/^(🔥|💪|🎉|🥳|👑|🏆)$/.test(msg.trim())) return "🔥";
+  if (/^(👋|✌️|🤙)$/.test(msg.trim())) return "👋";
+  if (/^(👍|🙏|🤝)$/.test(msg.trim())) return "👍";
 
-  // For anything else that's short and casual, react with thumbs up ~40% of the time
-  if (msg.length < 25 && Math.random() < 0.4) return "👍";
+  // === CASUAL SHORT MESSAGES -- react ~50% of the time to keep it alive ===
+  if (msg.length < 30 && Math.random() < 0.5) return "👍";
 
   return null;
 }
 
-// Send contact card to a member
+// Send contact card to a member (vCard with "Public Entity" name and phone number)
 async function shareContactCard(chatId) {
   if (!chatId) return;
+
+  // First try Linqapp's built-in share_contact_card
   try {
     const url = `${CONFIG.LINQAPP_SEND_URL}/${chatId}/share_contact_card`;
     const res = await fetch(url, {
@@ -1392,11 +1434,65 @@ async function shareContactCard(chatId) {
         Authorization: `Bearer ${CONFIG.LINQAPP_API_TOKEN}`,
       },
     });
-    const text = await res.text();
-    console.log(`[Contact] Card shared: ${res.status} ${text}`);
+    console.log(`[Contact] Card shared via Linqapp: ${res.status}`);
+    if (res.ok) return { ok: true, status: res.status };
+  } catch (err) {
+    console.log(`[Contact] Linqapp card failed, trying vCard: ${err.message}`);
+  }
+
+  // Fallback: send a vCard file as an attachment
+  try {
+    const phone = CONFIG.LINQAPP_PHONE.startsWith("+")
+      ? CONFIG.LINQAPP_PHONE
+      : `+1${CONFIG.LINQAPP_PHONE}`;
+
+    const vcard = [
+      "BEGIN:VCARD",
+      "VERSION:3.0",
+      "FN:Public Entity",
+      "N:Entity;Public;;;",
+      `TEL;TYPE=CELL:${phone}`,
+      "END:VCARD",
+    ].join("\r\n");
+
+    const vcardBuffer = Buffer.from(vcard, "utf8");
+
+    // Create upload slot
+    const slot = await createAttachmentUpload("Public Entity.vcf", "text/vcard", vcardBuffer.length);
+    if (!slot.ok || !slot.data) {
+      console.log("[Contact] vCard upload slot failed");
+      return { ok: false, error: "Upload slot failed" };
+    }
+
+    // Upload the vCard
+    const uploadUrl = slot.data.upload_url || slot.data.url;
+    if (uploadUrl) {
+      await uploadAttachmentData(uploadUrl, vcardBuffer, "text/vcard");
+    }
+
+    // Send as attachment
+    const attachId = slot.data.id || slot.data.attachment_id;
+    if (!attachId) return { ok: false, error: "No attachment ID" };
+
+    const msgUrl = `${CONFIG.LINQAPP_SEND_URL}/${chatId}/messages`;
+    const res = await fetch(msgUrl, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${CONFIG.LINQAPP_API_TOKEN}`,
+      },
+      body: JSON.stringify({
+        message: {
+          parts: [
+            { type: "attachment", attachment_id: attachId },
+          ],
+        },
+      }),
+    });
+    console.log(`[Contact] vCard sent: ${res.status}`);
     return { ok: res.ok, status: res.status };
   } catch (err) {
-    console.log(`[Contact] Card share failed: ${err.message}`);
+    console.log(`[Contact] vCard send failed: ${err.message}`);
     return { ok: false, error: err.message };
   }
 }
@@ -1556,23 +1652,29 @@ function handleGroupDebounce(payload, callback) {
 // Determine if a message only needs a reaction, not a text reply
 // These are conversation-enders or simple acknowledgments
 function isReactionSufficient(text, reaction) {
-  if (!reaction) return false; // No reaction = still need a reply
+  if (!reaction) return false;
 
   const msg = text.toLowerCase().trim();
 
-  // Simple closers that don't need a reply
-  if (/^(ok|k|cool|bet|got it|word|alright|sounds good|works|dope|solid|nice|perfect|great|yep|yup|copy|noted|will do)$/i.test(msg)) return true;
+  // Simple closers / acknowledgments -- reaction only
+  if (/^(ok|k|cool|bet|got it|word|alright|sounds good|works|dope|solid|nice|perfect|great|yep|yup|copy|noted|will do|for sure|fosho|heard|say less|aight|ight)[\s!.]*$/i.test(msg)) return true;
 
-  // Bye/farewell after conversation is clearly done
-  if (/^(bye|later|peace|see ya|dip|out|cya|ttyl|gn|goodnight|night)$/i.test(msg)) return true;
+  // Goodbye / farewell
+  if (/^(bye|later|peace|see ya|see you|dip|out|cya|ttyl|gn|goodnight|night|take care|catch you later)[\s!.]*$/i.test(msg)) return true;
 
-  // Single emoji responses
+  // Single emoji messages
   if (/^[\p{Emoji}\s]+$/u.test(msg) && msg.length <= 4) return true;
 
-  // Thumbs up, heart, or similar reaction-only messages
-  if (/^(👍|❤️|🔥|💯|🙏|✌️|👋|🤝|💪)$/u.test(msg)) return true;
+  // Reaction emoji messages
+  if (/^(👍|❤️|🔥|💯|🙏|✌️|👋|🤝|💪|😂|🤣|💀|🎉|👑|🫶|😘)$/u.test(msg.trim())) return true;
 
-  // Don't skip reply for anything that might be an order, question, or conversation starter
+  // "lol" / "haha" / "lmao" by itself — just laugh react, no text needed
+  if (/^(lol|lmao|lmfao|haha|hahaha|😂|🤣|dead|💀|i('m| am) dead)[\s!.]*$/i.test(msg)) return true;
+
+  // Short gratitude that's clearly a conversation ender
+  if (/^(thanks|thx|ty|thank you|appreciate it)[\s!.❤️]*$/i.test(msg)) return true;
+
+  // Don't skip for anything that could be an order, question, or conversation
   return false;
 }
 
@@ -1626,10 +1728,10 @@ async function handleInboundMessage(payload) {
     }
   }
 
-  // Step 2: Share contact card on first interaction (so they can save us)
-  if (!contactCardSent[from] && chatId) {
+  // Track if this is a first interaction (we'll send contact card after reply)
+  const isFirstInteraction = !contactCardSent[from] && chatId;
+  if (isFirstInteraction) {
     contactCardSent[from] = true;
-    setTimeout(() => shareContactCard(chatId), 100);
   }
 
   // === FAST PARALLEL PIPELINE ===
@@ -1700,6 +1802,11 @@ async function handleInboundMessage(payload) {
 
   // Try to learn name from Claude's confirmation (e.g. "Got it, Bryan F.")
   extractNameFromReply(reply, from);
+
+  // Send contact card after first reply (so they get the greeting first, then the card to save)
+  if (isFirstInteraction) {
+    setTimeout(() => shareContactCard(chatId), 2000);
+  }
 
   // Clean up
   delete pendingReplies[from];
