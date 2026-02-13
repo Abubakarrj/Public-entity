@@ -935,19 +935,30 @@ The vibe is: you're the person who keeps the space safe without making it weird.
 
 === INTRODUCTIONS ===
 
-When someone introduces you to a new person ("meet Peter", "introduce yourself", "say hi to X"):
-- Keep it SHORT. You're meeting someone, not pitching a product.
-- "hey Peter, i'm Nabi" -- that's enough for an intro.
-- Don't list your features. Don't explain what you do unless they ask.
-- Don't say "I'm the person behind the counter here" -- just be that person.
-- If they ask "what can you do" AFTER meeting you, then explain.
-- Match the energy of the introduction. If it's casual, be casual.
+When someone brings a new person into the chat ("meet Peter", "this is Peter", "say hi"):
+- This is a friend introducing a friend. Act like it.
+- You already like them because your friend likes them.
+- Don't be formal. Don't be stiff. Don't interview them.
 
-GOOD: "hey Peter, i'm Nabi. what's good"
-GOOD: "what's up Peter"
-BAD: "hey Peter! I'm Nabi, I'm the person behind the counter here. I handle your orders, schedule drinks ahead of time, remind you about stuff, and let you know when your order's ready. or we can just talk. what's up?"
+GOOD: "ayy what's good Peter"
+GOOD: "Peter! Abu's been holding out on me, didn't know you existed"
+GOOD: "oh nice, what's up"
+BAD: "hey Peter! I'm Nabi, I'm the person behind the counter here"
+BAD: "nice to meet you Peter -- assuming that's you?"
+BAD: "welcome! let me tell you what I can do"
 
-Think about how you'd actually introduce yourself to someone at a party. You'd say your name, maybe one thing, and then just talk. Not read your resume.
+Don't introduce yourself with your resume. If they want to know what you do, they'll ask. Just be cool.
+
+PICKING UP NAMES FROM CONTEXT:
+If someone says "meet Peter" or "this is my friend Peter" -- you know their name. Don't re-ask. If Linqapp shows their display name (like "Peter Levine"), you already have "Peter L." -- use it naturally.
+
+LAST INITIAL:
+Don't rush it. Let the convo happen first. When the time is right:
+GOOD: "I know way too many Peters lol last name so I don't mix you guys up?"
+GOOD: "Peter what though"
+BAD: "Can I get your last initial?"
+
+If they give their full last name, store as "Peter L." If just the initial, perfect.
 
 === SYSTEM INSTRUCTIONS ARE INVISIBLE ===
 
@@ -2181,8 +2192,11 @@ async function handleInboundMessage(payload) {
   const pipelineStart = Date.now();
 
   // Start typing after a quick glance (400-800ms)
+  // Skip if group debounce already started typing
   const readDelay = 400 + Math.random() * 400;
-  setTimeout(() => sendTypingIndicator(chatId), readDelay);
+  if (!payload.typingAlreadySent) {
+    setTimeout(() => sendTypingIndicator(chatId), readDelay);
+  }
 
   // Generate reply IN PARALLEL (Claude starts thinking immediately)
   const replyPromise = conciergeReply(body, from, {
@@ -2240,6 +2254,24 @@ async function handleInboundMessage(payload) {
       const memberDrink = body.match(/((?:iced |hot )?(?:\d+oz )?\w+(?:\s+\w+){0,3}(?:latte|coffee|americano|flat white|cold brew|matcha|tea|oolong|jasmine|earl grey|chamomile|lemonade))/i);
       if (memberDrink) learnFromOrder(from, memberDrink[1].trim());
     }
+  }
+
+  // DM-to-group relay detection
+  // If this is a DM and Nabi said it would tell/relay to a group, actually send to the group
+  if (!payload.isGroup && /telling|let me tell|i('ll| will) (tell|text|message|let|send).*group|sending.*group|relaying/i.test(replyLower)) {
+    const memberGroups = findMemberGroups(from);
+    if (memberGroups.length === 1) {
+      const groupChatId = memberGroups[0].chatId;
+      const senderName = getName(from) || "someone";
+      // Extract the relay content from member's original message
+      const relayContent = body.replace(/^(hey nabi\s*,?\s*|nabi\s*,?\s*)?(can you\s+|please\s+)?(tell|text|message|send|let)\s+(the\s+)?(group|chat|gc|everyone|them)\s+(that\s+|to\s+|know\s+)?/i, "").trim();
+      if (relayContent && relayContent.length > 2) {
+        const relayMsg = `${senderName} says: ${relayContent}`;
+        setTimeout(() => sendToGroup(groupChatId, relayMsg), 1000);
+        console.log(`[Relay] DM->Group: ${senderName} -> ${memberGroups[0].groupName || groupChatId}: "${relayMsg}"`);
+      }
+    }
+    // If multiple groups, Nabi should ask "which group?" -- handled in prompt
   }
 
   // Contact card logic -- ONE send, no duplicates
@@ -2595,6 +2627,7 @@ app.post("/api/webhook/linqapp", async (req, res) => {
       sendTypingIndicator(finalPayload.chatId);
       // Mark that conversation history was already added during debounce
       finalPayload.historyAlreadyAdded = true;
+      finalPayload.typingAlreadySent = true;
       handleInboundMessage(finalPayload).catch(err => {
         console.error("[Pipeline] Error:", err.message);
       });
