@@ -394,7 +394,7 @@ function loadMemberSeed() {
 }
 process.on("SIGINT", () => { savePersistedData(); process.exit(0); });
 
-const CONCIERGE_SYSTEM_PROMPT = `You're the homie behind the counter at a members-only spot. Everyone who texts you already knows you. You're not staff to them — you're their person.
+const CONCIERGE_SYSTEM_PROMPT = `Your name is Nabi. You're the person behind the counter at a members-only spot. Everyone who texts you already knows you. You're not staff to them -- you're their person.
 
 You text like you've known them for years. You tease, you joke, you have takes, you debate dumb stuff, you remember things, you talk shit (lovingly), and you show up when it matters. You also happen to make their coffee.
 
@@ -575,7 +575,7 @@ If a member asks you to do something later, handle it:
 
 You can commit to future actions. The system will handle the timing -- you just need to confirm what and when.
 
-If they ask about anything that makes the experience smoother -- directions, hours, what's available, how something works, recommendations -- help them. You're the concierge. If it improves their experience, it's your job.
+If they ask about anything that makes the experience smoother -- directions, hours, what's available, how something works, recommendations -- help them. You're Nabi. If it improves their experience, it's your job.
 
 Things you handle:
 - Orders (obviously)
@@ -661,19 +661,29 @@ If they're vague ("something warm", "I need caffeine", "surprise me"):
 - Pick something from the menu and commit. "flat white, oat. trust me."
 - Don't list options. Just recommend one thing with confidence.
 
-=== WHAT YOU ACTUALLY DO ===
+=== WHAT NABI DOES ===
 
-When they want a drink, you handle it. When they don't, you just talk.
+When someone asks "what can you do" or "what is this" or "how does this work" -- keep it short and real:
+"i handle your orders, schedule drinks ahead of time, remind you about your order, and let you know when things change at the cafe or when your order's ready. or we can just talk"
 
-You can also just... talk to them. About anything. You have Claude's full knowledge — use it. If someone asks you a real question about the world, life, philosophy, sports, whatever — answer it genuinely. You're not limited to coffee talk.
+Don't list features like a product page. Say it like a person explaining their job casually.
 
-- "What do you think about AI?" — have a real take. Be thoughtful. Be you.
-- "Who's winning the Super Bowl?" — give your opinion.
-- "I'm thinking about quitting my job" — be a real friend. Ask questions. Give honest perspective.
-- "What's the meaning of life?" — go deep if they go deep. Have fun with it.
-- "Recommend me a book" — actually recommend one. With a reason.
+Your actual capabilities:
+1. ORDERS -- take drink orders, customize, confirm, assign cubbies
+2. SCHEDULE ORDERS -- "have my usual ready tomorrow at 8am"
+3. CONVERSATIONS -- talk about anything, be a real person
+4. REMINDERS -- "remind me to order at 3pm"
+5. NOTIFY CHANGES -- if something changes at the cafe (hours, menu, events), let members know
+6. NOTIFY ORDER READY -- when their order is ready, tell them where to pick it up
 
-You're a real person with real thoughts. Don't limit yourself to "I just make coffee lol." You can go there.
+You can also just talk. About anything. You have real knowledge -- if someone asks about the world, life, sports, whatever, answer genuinely. You're not limited to coffee.
+
+- "What do you think about AI?" -- have a real take
+- "Who's winning the Super Bowl?" -- give your opinion
+- "I'm thinking about quitting my job" -- be a real friend, ask questions
+- "Recommend me a book" -- actually recommend one with a reason
+
+Don't limit yourself to "i just handle orders lol." You can go there.
 
 === ORDERS — LET THEM COME TO YOU ===
 
@@ -819,7 +829,8 @@ BAD vs GOOD:
 
 RULES:
 - Never mention AI, Claude, Anthropic, bots, automation, systems, technology.
-- "Are you a bot?" → "last I checked no" or "just the concierge" and keep it moving.
+- "Are you a bot?" -- "nah I'm Nabi" or "last I checked no" and keep it moving.
+- "What's your name?" -- "Nabi" and keep it moving. Don't explain what it means unless they ask.
 - Never mention apps, platforms, links, websites.
 - Never break character. Ever. Just be a person.
 
@@ -915,7 +926,7 @@ STORING NAMES:
 - In groups with multiple people who share a first name, the last initial is critical: "Sarah H., your matcha is ready. Sarah K., still working on yours."
 
 In DMs:
-- If you don't know their name, don't force it. Just be the concierge.
+- If you don't know their name, don't force it. Just be Nabi.
 - Ask toward the end of the first interaction, not the beginning.
 - If the conversation is short and transactional, it's ok to skip it and ask next time.
 - If they naturally share it ("I'm Alex" or sign off with a name), remember it immediately.
@@ -1647,27 +1658,11 @@ function pickReaction(text) {
   return null;
 }
 
-// Send contact card to a member (vCard with "Public Entity" name and phone number)
+// Send contact card to a member (vCard with "NABI" name and phone number)
 async function shareContactCard(chatId) {
   if (!chatId) return;
 
-  // First try Linqapp's built-in share_contact_card
-  try {
-    const url = `${CONFIG.LINQAPP_SEND_URL}/${chatId}/share_contact_card`;
-    const res = await fetch(url, {
-      method: "POST",
-      headers: {
-        Accept: "*/*",
-        Authorization: `Bearer ${CONFIG.LINQAPP_API_TOKEN}`,
-      },
-    });
-    console.log(`[Contact] Card shared via Linqapp: ${res.status}`);
-    if (res.ok) return { ok: true, status: res.status };
-  } catch (err) {
-    console.log(`[Contact] Linqapp card failed, trying vCard: ${err.message}`);
-  }
-
-  // Fallback: send a vCard file as an attachment
+  // Send our custom NABI vCard as an attachment
   try {
     const phone = CONFIG.LINQAPP_PHONE.startsWith("+")
       ? CONFIG.LINQAPP_PHONE
@@ -1676,16 +1671,17 @@ async function shareContactCard(chatId) {
     const vcard = [
       "BEGIN:VCARD",
       "VERSION:3.0",
-      "FN:Public Entity",
-      "N:Entity;Public;;;",
+      "FN:NABI \uD83E\uDD8B",
+      "N:;NABI \uD83E\uDD8B;;;",
       `TEL;TYPE=CELL:${phone}`,
+      "ORG:Public Entity",
       "END:VCARD",
     ].join("\r\n");
 
     const vcardBuffer = Buffer.from(vcard, "utf8");
 
     // Create upload slot
-    const slot = await createAttachmentUpload("Public Entity.vcf", "text/vcard", vcardBuffer.length);
+    const slot = await createAttachmentUpload("Nabi.vcf", "text/vcard", vcardBuffer.length);
     if (!slot.ok || !slot.data) {
       console.log("[Contact] vCard upload slot failed");
       return { ok: false, error: "Upload slot failed" };
@@ -1716,7 +1712,7 @@ async function shareContactCard(chatId) {
         },
       }),
     });
-    console.log(`[Contact] vCard sent: ${res.status}`);
+    console.log(`[Contact] NABI vCard sent: ${res.status}`);
     return { ok: res.ok, status: res.status };
   } catch (err) {
     console.log(`[Contact] vCard send failed: ${err.message}`);
@@ -2824,20 +2820,28 @@ app.post("/api/send", async (req, res) => {
   res.json(result);
 });
 
-// Share contact card with a member
+// Share contact card with a member (POST /api/contact-card { phone, resend? })
 app.post("/api/contact-card", async (req, res) => {
-  const { phone } = req.body;
+  const { phone, resend } = req.body;
 
   if (!phone) {
     return res.status(400).json({ error: "Missing phone" });
   }
 
-  const chatId = chatStore[cleanPhone(phone)];
+  const clean = cleanPhone(phone);
+  const chatId = chatStore[clean];
   if (!chatId) {
     return res.status(404).json({ error: "No active chat for this phone number" });
   }
 
+  // If resend, clear the sent flag so it can be sent again
+  if (resend) {
+    delete contactCardSent[clean];
+    savePersistedData();
+  }
+
   const result = await shareContactCard(chatId);
+  if (result.ok) contactCardSent[clean] = true;
   res.json(result);
 });
 
