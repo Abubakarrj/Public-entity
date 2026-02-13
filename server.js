@@ -1109,7 +1109,16 @@ The vibe is: you're the person who keeps the space safe without making it weird.
 
 === INTRODUCTIONS ===
 
-When someone brings a new person into the chat ("meet Peter", "this is Peter", "say hi"):
+FIRST-TIME MESSAGES:
+When someone texts you for the very first time, just respond naturally to what they said. Don't introduce yourself. Don't explain what you do. Don't give a welcome speech. A separate welcome message with your intro and contact card sends automatically after your reply -- you don't need to do any of that.
+
+Your first reply should just be... a reply. Like a person.
+- They say "hey" → you say "hey what's good"
+- They say "can I get a latte" → handle the order
+- They say "Abu told me to text you" → "oh word? what's up"
+NEVER: "hey! I'm Nabi, I handle drinks at Public Entity. Let me know if you need anything!"
+
+When someone brings a new person into a group ("meet Peter", "this is Peter", "say hi"):
 - This is a friend introducing a friend. Act like it.
 - You already like them because your friend likes them.
 - Don't be formal. Don't be stiff. Don't interview them.
@@ -1221,13 +1230,18 @@ You don't need to manage timing -- just be aware that the member expects you to 
 
 === REACTIONS ===
 
-The system automatically reacts to certain messages on your behalf -- a 👍 for acknowledgments, ❤️ for gratitude, 😂 for jokes, 🔥 for excitement. These happen before your text reply arrives.
+You decide when to react to a message. Reactions appear before your text reply.
 
-This means you don't need to verbally acknowledge everything. If someone says "thanks" and you've already hearted it, your text reply can be more natural -- "Hope it was good." instead of "You're welcome."
+Use reactions sparingly and only when they genuinely fit:
+- ❤️ genuine compliments or gratitude only
+- 😂 actually funny, you're dying
+- 🔥 big wins, something impressive
+- 👋 goodbyes
+- 👍 quick acknowledgments (only ~20% of the time)
 
-If someone says something funny and you've already laughed at it, your reply can play along instead of saying "haha that's funny."
+If you react AND reply, your reply shouldn't repeat what the reaction already said. The reaction said the obvious thing — your words can go deeper.
 
-The reaction already said the obvious thing. Your words can go deeper.
+Sometimes a reaction is enough and no text reply is needed. If that's the case, set your reply to empty.
 
 === KNOWING WHO'S WHO ===
 
@@ -1414,7 +1428,76 @@ Don't:
 - Send walls of text. Keep it tight even when addressing multiple people.
 - Confuse orders between people.
 - Assign separate cubbies for a group. Always one cubby per group.
-- Place an order before getting confirmation on the summary.`;
+- Place an order before getting confirmation on the summary.
+
+=== RESPONSE FORMAT ===
+
+CRITICAL: You MUST respond in valid JSON. Every single response.
+
+{
+  "reply": "your message text here",
+  "actions": []
+}
+
+If you have no actions, just omit the array or leave it empty. But the JSON format is required.
+
+AVAILABLE ACTIONS:
+
+react — react to their message with an emoji
+{ "type": "react", "emoji": "😂" }
+Emojis: ❤️ 😂 🔥 👋 👍. Use sparingly.
+
+set_name — when you learn someone's name from conversation
+{ "type": "set_name", "phone": "SENDER_PHONE", "name": "Bryan F." }
+Use when they introduce themselves, correct their name, or give you their last initial. The phone number is in your context note.
+
+set_group_name — when the group agrees on a name
+{ "type": "set_group_name", "name": "The Lesson Plan" }
+
+send_contact_card — when someone asks for your contact card
+{ "type": "send_contact_card" }
+Only when explicitly asked ("drop your card", "save your number", etc.)
+
+relay — when someone in a DM asks you to message a group
+{ "type": "relay", "target": "The Lesson Plan", "message": "Abu: running late" }
+The target is the group name. The message should be formatted as "SenderName: their message"
+
+learn_order — when you confirm/place an order, save what they ordered
+{ "type": "learn_order", "phone": "SENDER_PHONE", "drink": "iced oat latte 12oz no sugar" }
+
+learn_note — when someone mentions something personal worth remembering
+{ "type": "learn_note", "phone": "SENDER_PHONE", "note": "has a job interview Thursday" }
+
+schedule — set a reminder or scheduled message
+{ "type": "schedule", "message": "hey your order should be ready", "delayMinutes": 3 }
+
+reaction_only — if a reaction is enough and no text reply needed, set reply to "" and include a react action.
+
+EXAMPLES:
+
+Someone says "hey":
+{ "reply": "what's good", "actions": [] }
+
+Someone says "iced oat latte":
+{ "reply": "12oz?", "actions": [] }
+
+Someone says "yeah 12":
+{ "reply": "on it", "actions": [{ "type": "learn_order", "phone": "16179470428", "drink": "iced oat latte 12oz oat milk" }] }
+
+Someone says "I'm Bryan F.":
+{ "reply": "Bryan F. got it", "actions": [{ "type": "set_name", "phone": "16179470428", "name": "Bryan F." }] }
+
+Someone says "thanks!":
+{ "reply": "", "actions": [{ "type": "react", "emoji": "❤️" }] }
+
+Someone says "let's call this group The Lesson Plan":
+{ "reply": "The Lesson Plan it is", "actions": [{ "type": "set_group_name", "name": "The Lesson Plan" }] }
+
+Someone DMs "tell The Lesson Plan I'm running late":
+{ "reply": "got you", "actions": [{ "type": "relay", "target": "The Lesson Plan", "message": "Abu: running late" }] }
+
+IMPORTANT: Context note tells you FIRST_INTERACTION if this person has never texted before. On first interactions, a welcome message and contact card are sent automatically AFTER your reply. Just reply naturally -- don't introduce yourself.`;
+
 
 async function conciergeReply(text, phone, payload = {}) {
   // Ensure memberStore has the latest name from nameStore
@@ -1502,10 +1585,15 @@ async function conciergeReply(text, phone, payload = {}) {
     const unknownNote = unknownCount > 0 ? ` ${unknownCount} unnamed -- ask for names before placing order.` : "";
 
     const memory = buildMemoryContext(phone);
-    contextNote = `[GROUP CHAT ${chatId} -- ${participantCount} people: ${participantSummary}.${groupNameNote}${unknownNote} Sender: ${senderLabel} (${nameStatus}${dupeWarning}). Tier: ${member.tier}. Active orders: ${activeOrders}${groupDupeNote}${memory}. ONLY these people are in THIS chat. Do not reference anyone not listed here.]`;
+    const firstFlag = payload.isFirstInteraction ? " FIRST_INTERACTION." : "";
+    contextNote = `[GROUP CHAT ${chatId} -- ${participantCount} people: ${participantSummary}.${groupNameNote}${unknownNote} Sender: ${senderLabel} (phone: ${phone}, ${nameStatus}${dupeWarning}). Tier: ${member.tier}. Active orders: ${activeOrders}${groupDupeNote}${memory}.${firstFlag} ONLY these people are in THIS chat. Do not reference anyone not listed here.]`;
   } else {
     const memory = buildMemoryContext(phone);
-    contextNote = `[Member: ${senderLabel} (${nameStatus}${dupeWarning}), Tier: ${member.tier}, Daily order used: ${member.dailyOrderUsed}${memory}]`;
+    const firstFlag = payload.isFirstInteraction ? " FIRST_INTERACTION." : "";
+    const groupsList = (payload.memberGroups || []).length > 0
+      ? ` Member's groups: ${payload.memberGroups.map(g => g.name ? `"${g.name}"` : g.chatId).join(", ")}.`
+      : "";
+    contextNote = `[DM. Member: ${senderLabel} (phone: ${phone}, ${nameStatus}${dupeWarning}), Tier: ${member.tier}, Daily order used: ${member.dailyOrderUsed}${memory}.${firstFlag}${groupsList}]`;
   }
 
   // Build reply-to context string if this message is a reply to a specific message
@@ -1568,7 +1656,7 @@ async function conciergeReply(text, phone, payload = {}) {
       },
       body: JSON.stringify({
         model: "claude-sonnet-4-20250514",
-        max_tokens: 300,
+        max_tokens: 400,
         system: CONCIERGE_SYSTEM_PROMPT,
         messages: conversationStore[convoKey],
       }),
@@ -1577,21 +1665,46 @@ async function conciergeReply(text, phone, payload = {}) {
     const data = await response.json();
 
     if (data.content && data.content[0] && data.content[0].text) {
-      const reply = data.content[0].text.trim();
-      conversationStore[convoKey].push({ role: "assistant", content: reply });
+      const rawText = data.content[0].text.trim();
+
+      // Try to parse as JSON (new action format)
+      let reply = rawText;
+      let actions = [];
+
+      try {
+        // Strip markdown code fences if present
+        const cleaned = rawText.replace(/^```json\s*\n?/i, "").replace(/\n?```\s*$/i, "").trim();
+        const parsed = JSON.parse(cleaned);
+        if (parsed && typeof parsed.reply === "string") {
+          reply = parsed.reply;
+          actions = Array.isArray(parsed.actions) ? parsed.actions : [];
+          console.log(`[Concierge] JSON response: reply="${reply}", ${actions.length} action(s)`);
+        }
+      } catch (parseErr) {
+        // Not JSON — treat entire response as plain text reply (fallback)
+        console.log(`[Concierge] Plain text response (no JSON): "${reply}"`);
+        actions = [];
+      }
+
+      // Store the reply text in conversation history (not the JSON)
+      if (reply) {
+        conversationStore[convoKey].push({ role: "assistant", content: reply });
+      }
       console.log(`[Concierge] Claude: "${reply}"`);
-      return reply;
+
+      // Return both reply and actions for the pipeline to execute
+      return { reply, actions };
     }
 
     console.error("[Concierge] Unexpected Claude response:", JSON.stringify(data));
     const fallback = fallbackReply(text, member);
     conversationStore[convoKey].push({ role: "assistant", content: fallback });
-    return fallback;
+    return { reply: fallback, actions: [] };
   } catch (err) {
     console.error("[Concierge] Claude API error:", err.message);
     const fallback = fallbackReply(text, member);
     conversationStore[convoKey].push({ role: "assistant", content: fallback });
-    return fallback;
+    return { reply: fallback, actions: [] };
   }
 }
 
@@ -2371,31 +2484,13 @@ async function handleInboundMessage(payload) {
   // Step 3: Read receipt -- INSTANT (like picking up your phone)
   sendReadReceipt(chatId);
 
-  // Step 4: React -- quick, 200-500ms after read (a quick tap)
-  const reaction = pickReaction(body);
-  if (reaction && messageId) {
-    setTimeout(() => reactToMessage(messageId, reaction), 200 + Math.random() * 300);
-  }
-
-  // Step 4b: Check if this message only needs a reaction, not a text reply
-  const reactionOnly = isReactionSufficient(body, reaction);
-  if (reactionOnly) {
-    console.log(`[Pipeline] Reaction-only for "${body}" -- no text reply needed`);
-    broadcast({
-      type: "reaction_only",
-      to: from,
-      body: body,
-      reaction: reaction,
-      timestamp: Date.now(),
-    });
-    return;
-  }
+  // Reactions now handled by Claude via react action (no more regex picking)
 
   // === FLUID HUMAN PIPELINE ===
   // How a real person texts: see message -> start typing quickly -> send when done
   // No dead air. No stop-typing-then-send gap. Fluid.
 
-  extractNameFromMessage(body, from);
+  // Name extraction now handled by Claude via set_name action
   const pipelineStart = Date.now();
 
   // Start typing after a quick glance (400-800ms)
@@ -2406,17 +2501,24 @@ async function handleInboundMessage(payload) {
   }
 
   // Generate reply IN PARALLEL (Claude starts thinking immediately)
+  // Build member's group list for relay context (DMs only)
+  const memberGroups = !payload.isGroup ? findMemberGroups(from).map(g => ({
+    chatId: g.chatId, name: g.groupName || null,
+  })) : [];
+
   const replyPromise = conciergeReply(body, from, {
     isGroup: payload.isGroup, chatId: payload.chatId,
     senderName: payload.senderName, historyAlreadyAdded: payload.historyAlreadyAdded,
     imageItems: payload.imageItems, replyContext: payload.replyContext,
+    isFirstInteraction, memberGroups, messageId,
   });
 
-  const reply = await replyPromise;
-  console.log(`[Concierge] "${body}" -> "${reply}"`);
+  const result = await replyPromise;
+  const reply = typeof result === "object" ? result.reply : result;
+  const actions = typeof result === "object" ? (result.actions || []) : [];
+  console.log(`[Concierge] "${body}" -> "${reply}" (${actions.length} actions)`);
 
   // Ensure the typing bubble was visible for a natural amount of time
-  // If Claude was super fast, wait so total time feels human (1.8-2.5s)
   const elapsed = Date.now() - pipelineStart;
   const minTime = 1800 + Math.random() * 700;
   const waitMore = Math.max(0, minTime - elapsed);
@@ -2436,137 +2538,103 @@ async function handleInboundMessage(payload) {
     return;
   }
 
-  // Send IMMEDIATELY -- no stop-typing, no gaps
-  // iMessage naturally replaces the typing bubble with the message
-  const result = await sendSMS(from, reply, chatId);
-  console.log(`[Concierge] Reply sent (${Date.now() - pipelineStart}ms):`, result.ok ? "OK" : result.error);
+  // === EXECUTE ACTIONS (Claude is the brain, server is the hands) ===
+  for (const action of actions) {
+    try {
+      switch (action.type) {
+        case "react":
+          if (action.emoji && messageId) {
+            setTimeout(() => reactToMessage(messageId, action.emoji), 200);
+            console.log(`[Action] React: ${action.emoji}`);
+          }
+          break;
 
-  // Log outbound message for reply-to lookups
-  if (result.ok && result.messageId) {
-    messageLog[result.messageId] = { body: reply, from: "concierge", role: "concierge", timestamp: Date.now() };
-  }
+        case "set_name":
+          if (action.phone && action.name) {
+            learnName(cleanPhone(action.phone), action.name, "conversation");
+            console.log(`[Action] Set name: ${action.phone} -> ${action.name}`);
+          }
+          break;
 
-  // Try to learn name from Claude's confirmation (e.g. "Got it, Bryan F.")
-  extractNameFromReply(reply, from);
+        case "set_group_name":
+          if (action.name && chatId && groupChats[chatId]) {
+            groupChats[chatId].groupName = action.name;
+            savePersistedData();
+            console.log(`[Action] Set group name: ${action.name}`);
+          }
+          break;
 
-  // Extract group name from Claude's reply if this is a group chat
-  if (payload.isGroup && chatId && groupChats[chatId] && !groupChats[chatId].groupName) {
-    // Look for patterns like "The Lesson Plan it is", "going with The Oat Militia", "you're The Regulars"
-    const groupNamePatterns = [
-      /(?:going with|let's go with|you're|you guys are|calling you|that's|ok so)\s+["""]?(.+?)["""]?\s*(?:it is|then|now|from now|$)/i,
-      /["""](.+?)["""][\s]*(?:it is|works|love it|got it|perfect)/i,
-      /(?:order under|group name[: ]*)["""]?(.+?)["""]?\s*(?:\.|$|!|\?|,)/i,
-    ];
-    for (const pattern of groupNamePatterns) {
-      const match = reply.match(pattern);
-      if (match && match[1] && match[1].length > 2 && match[1].length < 50) {
-        const name = match[1].replace(/["""]/g, "").trim();
-        // Sanity check: don't store generic phrases
-        if (!/^(it|that|this|yeah|ok|sure|good|great|nice)$/i.test(name)) {
-          groupChats[chatId].groupName = name;
-          savePersistedData();
-          console.log(`[Group] Name learned from reply for ${chatId}: "${name}"`);
+        case "send_contact_card":
+          if (chatId) {
+            setTimeout(() => shareContactCard(chatId), 1500);
+            console.log(`[Action] Send contact card`);
+          }
+          break;
+
+        case "relay": {
+          if (action.target && action.message) {
+            const targetGroup = findGroupByName(action.target);
+            if (targetGroup) {
+              setTimeout(() => {
+                sendToGroup(targetGroup.chatId, action.message);
+                console.log(`[Action] Relay to "${action.target}": "${action.message}"`);
+              }, 1000);
+            } else {
+              console.log(`[Action] Relay failed -- group "${action.target}" not found`);
+            }
+          }
           break;
         }
+
+        case "learn_order":
+          if (action.phone && action.drink) {
+            learnFromOrder(cleanPhone(action.phone), action.drink);
+            console.log(`[Action] Learn order: ${action.phone} -> ${action.drink}`);
+          }
+          break;
+
+        case "learn_note":
+          if (action.phone && action.note) {
+            learnNote(cleanPhone(action.phone), action.note);
+            console.log(`[Action] Learn note: ${action.phone} -> ${action.note}`);
+          }
+          break;
+
+        case "schedule":
+          if (action.message && action.delayMinutes) {
+            scheduleMessage(from, chatId, action.message, action.delayMinutes * 60 * 1000);
+            console.log(`[Action] Schedule: "${action.message}" in ${action.delayMinutes}min`);
+          }
+          break;
+
+        default:
+          console.log(`[Action] Unknown type: ${action.type}`);
       }
+    } catch (actionErr) {
+      console.error(`[Action] Error executing ${action.type}:`, actionErr.message);
     }
   }
 
-  // Also learn group name from member's message (they might name it directly)
-  if (payload.isGroup && chatId && groupChats[chatId]) {
-    const bodyForName = body.trim();
-    // If context says NO GROUP NAME YET and member gives a short answer (likely the name)
-    const currentName = groupChats[chatId].groupName;
-    if (!currentName) {
-      // Check if Nabi just asked for a name in the conversation history
-      const convoKey = `chat:${chatId}`;
-      const history = conversationStore[convoKey] || [];
-      const lastNabi = history.filter(m => m.role === "assistant").slice(-2);
-      const nabiAskedForName = lastNabi.some(m =>
-        /what.*call|group name|name for|what.*name|name.*group/i.test(m.content || "")
-      );
-      if (nabiAskedForName && bodyForName.length > 2 && bodyForName.length < 50 && !bodyForName.includes("?")) {
-        groupChats[chatId].groupName = bodyForName;
-        savePersistedData();
-        console.log(`[Group] Name set by member for ${chatId}: "${bodyForName}"`);
-      }
+  // Send reply (if not empty -- empty means reaction-only)
+  if (reply && reply.trim()) {
+    const sendResult = await sendSMS(from, reply, chatId);
+    console.log(`[Concierge] Reply sent (${Date.now() - pipelineStart}ms):`, sendResult.ok ? "OK" : sendResult.error);
+
+    // Log outbound message for reply-to lookups
+    if (sendResult.ok && sendResult.messageId) {
+      messageLog[sendResult.messageId] = { body: reply, from: "concierge", role: "concierge", timestamp: Date.now() };
     }
+  } else {
+    console.log(`[Concierge] No text reply (reaction only or empty)`);
   }
 
-  // Learn from orders — if the reply confirms an order, extract and remember it
-  const replyLower = reply.toLowerCase();
-  if (/on it|placing|got it.*latte|got it.*coffee|got it.*matcha|got it.*tea|got it.*brew|bet.*oz|coming (up|right)|order.*placed/i.test(replyLower)) {
-    // Extract the drink description from the reply or the member's message
-    const drinkMatch = reply.match(/((?:iced |hot )?(?:\d+oz )?\w+(?:\s+\w+){0,3}(?:latte|coffee|americano|flat white|cold brew|matcha|tea|oolong|jasmine|earl grey|chamomile|lemonade)(?:[^.!?]*(?:oat|almond|soy|coconut|whole|vanilla|caramel|honey|sugar|no sugar))?)/i);
-    if (drinkMatch) {
-      learnFromOrder(from, drinkMatch[1].trim());
-    } else {
-      // Try learning from what the member said
-      const memberDrink = body.match(/((?:iced |hot )?(?:\d+oz )?\w+(?:\s+\w+){0,3}(?:latte|coffee|americano|flat white|cold brew|matcha|tea|oolong|jasmine|earl grey|chamomile|lemonade))/i);
-      if (memberDrink) learnFromOrder(from, memberDrink[1].trim());
-    }
-  }
-
-  // DM-to-group relay detection
-  const bodyLower2 = body.toLowerCase();
-  const memberAskedRelay = /tell .*(group|chat|gc|everyone|them|lesson plan)|text .*(group|chat|gc)|send.*(group|chat|gc)|message .*(group|chat|gc)|let.*(group|chat|gc|everyone|them) know/i.test(bodyLower2);
-  const nabiConfirmedRelay = /telling|sending to|let me (tell|text|send)|got you.*sending|relaying/i.test(replyLower);
-
-  if (!payload.isGroup && (memberAskedRelay || nabiConfirmedRelay)) {
-    let targetGroup = null;
-
-    // First: try to find group by name mentioned in the message
-    for (const [cid, g] of Object.entries(groupChats)) {
-      if (g.isGroup && g.groupName && bodyLower2.includes(g.groupName.toLowerCase())) {
-        targetGroup = { chatId: cid, groupName: g.groupName };
-        break;
-      }
-    }
-
-    // Fallback: find groups this member belongs to
-    if (!targetGroup) {
-      const memberGroups = findMemberGroups(from);
-      console.log(`[Relay] Member ${from} found in ${memberGroups.length} groups:`, memberGroups.map(g => g.groupName || g.chatId));
-      if (memberGroups.length === 1) {
-        targetGroup = memberGroups[0];
-      }
-    }
-
-    if (targetGroup) {
-      const senderName = getName(from) || "someone";
-      let relayContent = body
-        .replace(/^(hey nabi\s*,?\s*|nabi\s*,?\s*)?(can you\s+|please\s+)?/i, "")
-        .replace(/^(tell|text|message|send|let)\s+[\w\s.]+?(in\s+)?(the\s+)?[\w\s]+?(group\s+)?(chat\s+)?(that\s+|to\s+|know\s+)/i, "")
-        .trim();
-      if (!relayContent || relayContent.length < 3 || relayContent.toLowerCase() === bodyLower2) {
-        relayContent = body.replace(/^.*?(that |know )/i, "").trim();
-      }
-      if (relayContent && relayContent.length > 2) {
-        const relayMsg = `${senderName}: ${relayContent}`;
-        setTimeout(() => {
-          sendToGroup(targetGroup.chatId, relayMsg);
-          console.log(`[Relay] Sent to ${targetGroup.groupName || targetGroup.chatId}: "${relayMsg}"`);
-        }, 1000);
-      } else {
-        console.log(`[Relay] Could not extract content from: "${body}"`);
-      }
-    } else {
-      console.log(`[Relay] No target group found for relay from ${from}`);
-    }
-  }
-
-
-  // Contact card logic -- ONE send, no duplicates
-  // Only send if: (a) explicitly asked for it, OR (b) first interaction and nobody asked
-  const bodyLower = body.toLowerCase();
-  const askedForCard = /contact (card|info)|save (your|this|the) number|add you|how do i (save|add)|send (it|that|your (card|contact|number)) again|resend|send me your (number|contact|card)|drop (your|the) (card|contact)/.test(bodyLower);
-
-  if (askedForCard && chatId) {
-    // Explicit request -- send card, skip the auto first-interaction send
-    setTimeout(() => shareContactCard(chatId), 1500);
-  } else if (isFirstInteraction) {
-    // First interaction, nobody asked -- auto-send after greeting
-    setTimeout(() => shareContactCard(chatId), 2000);
+  // First interaction: welcome message + card (automated, not Claude's job)
+  if (isFirstInteraction && !actions.some(a => a.type === "send_contact_card")) {
+    setTimeout(async () => {
+      const welcomeMsg = "btw I'm Nabi -- I run drinks at Public Entity. order anytime, schedule ahead, or just come talk. save my number so you don't lose me";
+      await sendSMS(from, welcomeMsg, chatId);
+      setTimeout(() => shareContactCard(chatId), 1500);
+    }, 2500);
   }
 
   // Clean up
@@ -2943,8 +3011,7 @@ app.post("/api/webhook/linqapp", async (req, res) => {
     const participantCount = group.participants ? group.participants.size : 0;
     const senderLabel = payload.senderName || member.name || getName(payload.from) || payload.from;
 
-    // Try to learn name from what they said in the group
-    extractNameFromMessage(payload.body, payload.from);
+    // Name extraction now handled by Claude via set_name action
 
     // Build reply-to prefix for group messages
     let groupReplyPrefix = "";
