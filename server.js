@@ -2242,6 +2242,50 @@ async function handleInboundMessage(payload) {
   // Try to learn name from Claude's confirmation (e.g. "Got it, Bryan F.")
   extractNameFromReply(reply, from);
 
+  // Extract group name from Claude's reply if this is a group chat
+  if (payload.isGroup && chatId && groupChats[chatId] && !groupChats[chatId].groupName) {
+    // Look for patterns like "The Lesson Plan it is", "going with The Oat Militia", "you're The Regulars"
+    const groupNamePatterns = [
+      /(?:going with|let's go with|you're|you guys are|calling you|that's|ok so)\s+["""]?(.+?)["""]?\s*(?:it is|then|now|from now|$)/i,
+      /["""](.+?)["""][\s]*(?:it is|works|love it|got it|perfect)/i,
+      /(?:order under|group name[: ]*)["""]?(.+?)["""]?\s*(?:\.|$|!|\?|,)/i,
+    ];
+    for (const pattern of groupNamePatterns) {
+      const match = reply.match(pattern);
+      if (match && match[1] && match[1].length > 2 && match[1].length < 50) {
+        const name = match[1].replace(/["""]/g, "").trim();
+        // Sanity check: don't store generic phrases
+        if (!/^(it|that|this|yeah|ok|sure|good|great|nice)$/i.test(name)) {
+          groupChats[chatId].groupName = name;
+          savePersistedData();
+          console.log(`[Group] Name learned from reply for ${chatId}: "${name}"`);
+          break;
+        }
+      }
+    }
+  }
+
+  // Also learn group name from member's message (they might name it directly)
+  if (payload.isGroup && chatId && groupChats[chatId]) {
+    const bodyForName = body.trim();
+    // If context says NO GROUP NAME YET and member gives a short answer (likely the name)
+    const currentName = groupChats[chatId].groupName;
+    if (!currentName) {
+      // Check if Nabi just asked for a name in the conversation history
+      const convoKey = `group:${chatId}`;
+      const history = conversationStore[convoKey] || [];
+      const lastNabi = history.filter(m => m.role === "assistant").slice(-2);
+      const nabiAskedForName = lastNabi.some(m =>
+        /what.*call|group name|name for|what.*name|name.*group/i.test(m.content || "")
+      );
+      if (nabiAskedForName && bodyForName.length > 2 && bodyForName.length < 50 && !bodyForName.includes("?")) {
+        groupChats[chatId].groupName = bodyForName;
+        savePersistedData();
+        console.log(`[Group] Name set by member for ${chatId}: "${bodyForName}"`);
+      }
+    }
+  }
+
   // Learn from orders — if the reply confirms an order, extract and remember it
   const replyLower = reply.toLowerCase();
   if (/on it|placing|got it.*latte|got it.*coffee|got it.*matcha|got it.*tea|got it.*brew|bet.*oz|coming (up|right)|order.*placed/i.test(replyLower)) {
