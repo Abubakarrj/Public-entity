@@ -1519,12 +1519,21 @@ async function conciergeReply(text, phone, payload = {}) {
   // Build conversation history
   if (!conversationStore[convoKey]) {
     conversationStore[convoKey] = [];
-    // If migrating from old format, check for legacy keys
-    const legacyKey = chatId ? `chat:${chatId}` : `phone:${phone}`;
-    if (conversationStore[legacyKey]) {
-      conversationStore[convoKey] = conversationStore[legacyKey];
-      delete conversationStore[legacyKey];
-      console.log(`[Migrate] Conversation ${legacyKey} -> ${convoKey}`);
+    // Migrate from old key formats if they exist
+    const oldKeys = [];
+    if (chatId) {
+      oldKeys.push(`group:${chatId}`); // old group format
+    }
+    if (phone && !chatId) {
+      oldKeys.push(phone); // old bare phone format
+    }
+    for (const oldKey of oldKeys) {
+      if (oldKey !== convoKey && conversationStore[oldKey]) {
+        conversationStore[convoKey] = conversationStore[oldKey];
+        delete conversationStore[oldKey];
+        console.log(`[Migrate] Conversation ${oldKey} -> ${convoKey}`);
+        break;
+      }
     }
   }
 
