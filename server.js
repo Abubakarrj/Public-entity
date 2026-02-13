@@ -1700,22 +1700,43 @@ async function shareContactCard(chatId) {
     if (!attachId) return { ok: false, error: "No attachment ID" };
 
     const msgUrl = `${CONFIG.LINQAPP_SEND_URL}/${chatId}/messages`;
-    const res = await fetch(msgUrl, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${CONFIG.LINQAPP_API_TOKEN}`,
-      },
-      body: JSON.stringify({
-        message: {
-          parts: [
-            { type: "attachment", attachment_id: attachId },
-          ],
+
+    // Try different attachment message formats
+    const formats = [
+      // Format 1: attachment_id in parts
+      { message: { parts: [{ type: "attachment", attachment_id: attachId }] } },
+      // Format 2: attachments array
+      { message: { parts: [{ type: "text", value: "" }], attachments: [{ id: attachId }] } },
+      // Format 3: attachment at message level
+      { message: { attachments: [{ attachment_id: attachId }] } },
+      // Format 4: just the attachment id
+      { message: { parts: [{ type: "file", attachment_id: attachId }] } },
+      // Format 5: value is the attachment id
+      { message: { parts: [{ type: "attachment", value: attachId }] } },
+    ];
+
+    for (let i = 0; i < formats.length; i++) {
+      const res = await fetch(msgUrl, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${CONFIG.LINQAPP_API_TOKEN}`,
         },
-      }),
-    });
-    console.log(`[Contact] NABI vCard sent: ${res.status}`);
-    return { ok: res.ok, status: res.status };
+        body: JSON.stringify(formats[i]),
+      });
+      const resText = await res.text();
+
+      if (res.ok) {
+        console.log(`[Contact] NABI vCard sent with format ${i + 1}: ${res.status}`);
+        return { ok: true, status: res.status };
+      }
+      if (i < 3) {
+        console.log(`[Contact] Format ${i + 1} failed (${res.status}): ${resText.substring(0, 300)}`);
+      }
+    }
+
+    console.log(`[Contact] All vCard send formats failed`);
+    return { ok: false, error: "All formats failed" };
   } catch (err) {
     console.log(`[Contact] vCard send failed: ${err.message}`);
     return { ok: false, error: err.message };
