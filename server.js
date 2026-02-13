@@ -2680,6 +2680,21 @@ app.post("/api/webhook/linqapp", async (req, res) => {
   const eventType = req.body.event_type || "";
   console.log(`[Webhook] ${eventType}:`, JSON.stringify(req.body).slice(0, 200));
 
+  // Log sender details for debugging identity issues
+  const webhookData = req.body.data || {};
+  if (eventType === "message.received" && webhookData.sender_handle) {
+    console.log(`[Webhook] Sender details:`, JSON.stringify({
+      handle: webhookData.sender_handle.handle,
+      display_name: webhookData.sender_handle.display_name,
+      name: webhookData.sender_handle.name,
+      contact_name: webhookData.sender_handle.contact_name,
+      full_name: webhookData.sender_handle.full_name,
+      chat_id: (webhookData.chat || {}).id,
+      is_group: (webhookData.chat || {}).is_group,
+      chat_participants: (webhookData.chat || {}).participants || (webhookData.chat || {}).members || "none",
+    }));
+  }
+
   // Respond 200 immediately -- Linqapp expects fast ack
   res.status(200).json({ received: true });
 
