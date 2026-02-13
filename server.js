@@ -2257,22 +2257,53 @@ async function handleInboundMessage(payload) {
   }
 
   // DM-to-group relay detection
-  // If this is a DM and Nabi said it would tell/relay to a group, actually send to the group
-  if (!payload.isGroup && /telling|let me tell|i('ll| will) (tell|text|message|let|send).*group|sending.*group|relaying/i.test(replyLower)) {
-    const memberGroups = findMemberGroups(from);
-    if (memberGroups.length === 1) {
-      const groupChatId = memberGroups[0].chatId;
-      const senderName = getName(from) || "someone";
-      // Extract the relay content from member's original message
-      const relayContent = body.replace(/^(hey nabi\s*,?\s*|nabi\s*,?\s*)?(can you\s+|please\s+)?(tell|text|message|send|let)\s+(the\s+)?(group|chat|gc|everyone|them)\s+(that\s+|to\s+|know\s+)?/i, "").trim();
-      if (relayContent && relayContent.length > 2) {
-        const relayMsg = `${senderName} says: ${relayContent}`;
-        setTimeout(() => sendToGroup(groupChatId, relayMsg), 1000);
-        console.log(`[Relay] DM->Group: ${senderName} -> ${memberGroups[0].groupName || groupChatId}: "${relayMsg}"`);
+  const bodyLower2 = body.toLowerCase();
+  const memberAskedRelay = /tell .*(group|chat|gc|everyone|them|lesson plan)|text .*(group|chat|gc)|send.*(group|chat|gc)|message .*(group|chat|gc)|let.*(group|chat|gc|everyone|them) know/i.test(bodyLower2);
+  const nabiConfirmedRelay = /telling|sending to|let me (tell|text|send)|got you.*sending|relaying/i.test(replyLower);
+
+  if (!payload.isGroup && (memberAskedRelay || nabiConfirmedRelay)) {
+    let targetGroup = null;
+
+    // First: try to find group by name mentioned in the message
+    for (const [cid, g] of Object.entries(groupChats)) {
+      if (g.isGroup && g.groupName && bodyLower2.includes(g.groupName.toLowerCase())) {
+        targetGroup = { chatId: cid, groupName: g.groupName };
+        break;
       }
     }
-    // If multiple groups, Nabi should ask "which group?" -- handled in prompt
+
+    // Fallback: find groups this member belongs to
+    if (!targetGroup) {
+      const memberGroups = findMemberGroups(from);
+      console.log(`[Relay] Member ${from} found in ${memberGroups.length} groups:`, memberGroups.map(g => g.groupName || g.chatId));
+      if (memberGroups.length === 1) {
+        targetGroup = memberGroups[0];
+      }
+    }
+
+    if (targetGroup) {
+      const senderName = getName(from) || "someone";
+      let relayContent = body
+        .replace(/^(hey nabi\s*,?\s*|nabi\s*,?\s*)?(can you\s+|please\s+)?/i, "")
+        .replace(/^(tell|text|message|send|let)\s+[\w\s.]+?(in\s+)?(the\s+)?[\w\s]+?(group\s+)?(chat\s+)?(that\s+|to\s+|know\s+)/i, "")
+        .trim();
+      if (!relayContent || relayContent.length < 3 || relayContent.toLowerCase() === bodyLower2) {
+        relayContent = body.replace(/^.*?(that |know )/i, "").trim();
+      }
+      if (relayContent && relayContent.length > 2) {
+        const relayMsg = `${senderName}: ${relayContent}`;
+        setTimeout(() => {
+          sendToGroup(targetGroup.chatId, relayMsg);
+          console.log(`[Relay] Sent to ${targetGroup.groupName || targetGroup.chatId}: "${relayMsg}"`);
+        }, 1000);
+      } else {
+        console.log(`[Relay] Could not extract content from: "${body}"`);
+      }
+    } else {
+      console.log(`[Relay] No target group found for relay from ${from}`);
+    }
   }
+
 
   // Contact card logic -- ONE send, no duplicates
   // Only send if: (a) explicitly asked for it, OR (b) first interaction and nobody asked
@@ -2469,13 +2500,49 @@ app.post("/api/schedule", (req, res) => {
 
 // Find group chats that a member belongs to
 function findMemberGroups(phone) {
+  const clean = cleanPhone(phone);
   const groups = [];
   for (const [chatId, group] of Object.entries(groupChats)) {
-    if (group.isGroup && group.participants && group.participants.has(phone)) {
-      groups.push({ chatId, groupName: group.groupName, size: group.participants.size });
+    if (!group.isGroup) continue;
+    // Check if member is in this group by any phone format
+    let isMember = false;
+    if (group.participants) {
+      for (const p of group.participants) {
+        if (cleanPhone(p) === clean) { isMember = true; break; }
+      }
+    }
+    // Also check chatStore -- if this phone has a DM chatId that differs from this group chatId,
+    // and this group has their phone, they're in the group
+    if (!isMember && chatStore[clean] && chatStore[clean] !== chatId) {
+      // Check if any participant matches
+      if (group.participants) {
+        for (const p of group.participants) {
+          if (cleanPhone(p) === clean) { isMember = true; break; }
+        }
+      }
+    }
+    if (isMember) {
+      groups.push({ chatId, groupName: group.groupName, size: group.participants ? group.participants.size : 0 });
     }
   }
   return groups;
+}
+
+// Find a group by name
+function findGroupByName(name) {
+  const lower = name.toLowerCase().trim();
+  for (const [chatId, group] of Object.entries(groupChats)) {
+    if (group.isGroup && group.groupName && group.groupName.toLowerCase().trim() === lower) {
+      return { chatId, groupName: group.groupName, size: group.participants ? group.participants.size : 0 };
+    }
+  }
+  // Partial match
+  for (const [chatId, group] of Object.entries(groupChats)) {
+    if (group.isGroup && group.groupName && group.groupName.toLowerCase().includes(lower)) {
+      return { chatId, groupName: group.groupName, size: group.participants ? group.participants.size : 0 };
+    }
+  }
+  return null;
 }
 
 // Send a message to a group chat (used for relays and group reminders)
