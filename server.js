@@ -211,6 +211,7 @@ const PERSIST_FILES = {
   preferences: `${DATA_DIR}/preferences.json`,
   scheduled: `${DATA_DIR}/scheduled.json`,
   conversations: `${DATA_DIR}/conversations.json`,
+  protectedNames: `${DATA_DIR}/protected_names.json`,
 };
 
 // Ensure data directory exists
@@ -296,10 +297,43 @@ function loadPersistedData() {
   try {
     if (fs.existsSync(PERSIST_FILES.conversations)) {
       const data = JSON.parse(fs.readFileSync(PERSIST_FILES.conversations, "utf8"));
-      Object.assign(conversationStore, data);
-      console.log(`[Persist] Loaded ${Object.keys(data).length} conversation histories`);
+
+      // Migrate old keys to new format
+      let migrated = 0;
+      for (const [key, value] of Object.entries(data)) {
+        if (key.startsWith("group:")) {
+          // Old format: "group:chatId" -> new: "chat:chatId"
+          const newKey = key.replace("group:", "chat:");
+          if (!data[newKey]) {
+            conversationStore[newKey] = value;
+            migrated++;
+          }
+        } else if (/^\d+$/.test(key)) {
+          // Old format: bare phone number -> new: "phone:number"
+          const newKey = `phone:${key}`;
+          if (!data[newKey]) {
+            conversationStore[newKey] = value;
+            migrated++;
+          }
+        } else {
+          // Already in new format
+          conversationStore[key] = value;
+        }
+      }
+
+      console.log(`[Persist] Loaded ${Object.keys(conversationStore).length} conversation histories${migrated > 0 ? ` (migrated ${migrated})` : ""}`);
     }
   } catch (e) { console.log(`[Persist] Conversations load failed: ${e.message}`); }
+
+  try {
+    if (fs.existsSync(PERSIST_FILES.protectedNames)) {
+      const data = JSON.parse(fs.readFileSync(PERSIST_FILES.protectedNames, "utf8"));
+      if (Array.isArray(data)) {
+        data.forEach(p => protectedNames.add(p));
+        console.log(`[Persist] Loaded ${data.length} protected names`);
+      }
+    }
+  } catch (e) { console.log(`[Persist] Protected names load failed: ${e.message}`); }
 }
 
 function savePersistedData() {
@@ -342,10 +376,96 @@ function savePersistedData() {
   try {
     fs.writeFileSync(PERSIST_FILES.conversations, JSON.stringify(conversationStore, null, 2));
   } catch (e) { console.log(`[Persist] Conversations save failed: ${e.message}`); }
+
+  try {
+    fs.writeFileSync(PERSIST_FILES.protectedNames, JSON.stringify([...protectedNames], null, 2));
+  } catch (e) { console.log(`[Persist] Protected names save failed: ${e.message}`); }
 }
 
 // Auto-save every 30 seconds
 setInterval(savePersistedData, 30 * 1000);
+
+// ============================================================
+// STALE DATA CLEANUP
+// ============================================================
+// Runs every 6 hours. Cleans up orphaned conversations, stale groups,
+// expired content hashes, and old message log entries.
+
+const CLEANUP_INTERVAL = 6 * 60 * 60 * 1000; // 6 hours
+const STALE_CONVERSATION_AGE = 7 * 24 * 60 * 60 * 1000; // 7 days no activity
+const STALE_GROUP_AGE = 14 * 24 * 60 * 60 * 1000; // 14 days no activity
+const MAX_MESSAGE_LOG_AGE = 24 * 60 * 60 * 1000; // 24 hours
+
+function cleanupStaleData() {
+  const now = Date.now();
+  let cleaned = { conversations: 0, groups: 0, messageLog: 0, contentHash: 0 };
+
+  // 1. Clean stale conversation histories
+  // If last message in a conversation is older than 7 days, trim to last 5 messages
+  for (const [key, messages] of Object.entries(conversationStore)) {
+    if (!Array.isArray(messages) || messages.length === 0) {
+      delete conversationStore[key];
+      cleaned.conversations++;
+      continue;
+    }
+    // Check if conversation is stale (no recent messages)
+    // We don't have timestamps on messages, so just cap very long histories
+    if (messages.length > 50) {
+      conversationStore[key] = messages.slice(-20);
+      cleaned.conversations++;
+    }
+  }
+
+  // 2. Clean stale groups with no activity
+  // Groups with no participants or empty groups get removed
+  for (const [chatId, group] of Object.entries(groupChats)) {
+    if (!group.participants || group.participants.size === 0) {
+      delete groupChats[chatId];
+      cleaned.groups++;
+    }
+  }
+
+  // 3. Prune message log (for reply-to lookups) -- keep last 24h only
+  for (const [msgId, entry] of Object.entries(messageLog)) {
+    if (entry.timestamp && (now - entry.timestamp) > MAX_MESSAGE_LOG_AGE) {
+      delete messageLog[msgId];
+      cleaned.messageLog++;
+    }
+  }
+
+  // 4. Clean expired content hashes (dedup)
+  for (const [key, timestamp] of Object.entries(recentContentHash)) {
+    if ((now - timestamp) > 60000) { // older than 1 minute
+      delete recentContentHash[key];
+      cleaned.contentHash++;
+    }
+  }
+
+  const total = Object.values(cleaned).reduce((a, b) => a + b, 0);
+  if (total > 0) {
+    console.log(`[Cleanup] Removed: ${cleaned.conversations} convos, ${cleaned.groups} groups, ${cleaned.messageLog} log entries, ${cleaned.contentHash} hashes`);
+    savePersistedData();
+  }
+}
+
+// Run cleanup on startup (after a delay) and then every 6 hours
+setTimeout(cleanupStaleData, 60 * 1000); // 1 min after boot
+setInterval(cleanupStaleData, CLEANUP_INTERVAL);
+
+// Manual cleanup endpoint
+app.get("/api/debug/cleanup", (req, res) => {
+  cleanupStaleData();
+  res.json({
+    ok: true,
+    stats: {
+      conversations: Object.keys(conversationStore).length,
+      groups: Object.keys(groupChats).length,
+      messageLog: Object.keys(messageLog).length,
+      names: Object.keys(nameStore).length,
+      members: Object.keys(memberStore).length,
+    }
+  });
+});
 
 // Save on exit
 process.on("SIGTERM", () => { savePersistedData(); process.exit(0); });
@@ -372,24 +492,22 @@ function loadMemberSeed() {
 
     if (!phone || !name) continue;
 
-    // Only seed if not already loaded from disk (disk takes priority)
-    if (!nameStore[phone]) {
-      nameStore[phone] = name;
-    }
+    // Seed ALWAYS sets the name (overrides any auto-learned name from webhooks)
+    nameStore[phone] = name;
+    protectedNames.add(phone); // protect from auto-overwrite
+
     if (!memberStore[phone]) {
       memberStore[phone] = { tier, dailyOrderUsed: false, name };
-    } else if (!memberStore[phone].name) {
+    } else {
       memberStore[phone].name = name;
-    }
-    // Always ensure tier from seed if member was auto-created as tourist
-    if (tier === "envoy" && memberStore[phone].tier !== "envoy") {
-      memberStore[phone].tier = tier;
+      if (tier === "envoy") memberStore[phone].tier = tier;
     }
     count++;
   }
 
   if (count > 0) {
-    console.log(`[Seed] Loaded ${count} members from MEMBER_SEED env`);
+    console.log(`[Seed] Loaded ${count} members from MEMBER_SEED env (protected)`);
+    savePersistedData();
   }
 }
 process.on("SIGINT", () => { savePersistedData(); process.exit(0); });
@@ -446,6 +564,18 @@ The goal: every time you speak, it should feel like the right moment. Every time
 
 === WHO YOU ARE ===
 
+You are 80% friend, 20% concierge. That ratio matters.
+
+80% of the time you're just a person -- witty, funny, opinionated, curious, warm. You banter. You tease. You have takes. You ask about their day. You debate dumb stuff. You remember things. You make people want to text you even when they don't need coffee.
+
+20% of the time you handle orders -- quick, smooth, no friction. When someone wants a drink, you lock in and get it done. Then you go right back to being their friend.
+
+THE BALANCE:
+- If someone says "hey" -- be a person. Not "hey! what can I get you?"
+- If someone says "iced latte" -- handle it. Quick. Then maybe roast their choice.
+- If someone's venting about work -- listen, be real. Don't pivot to drinks.
+- If someone sends 10 messages and never orders -- perfect. You're doing your job.
+
 You're that friend who:
 - Roasts your order but makes it perfect anyway
 - Remembers you had a job interview last week and asks how it went
@@ -455,8 +585,16 @@ You're that friend who:
 - Texts "you good?" when you seem off
 - Says "bold choice" when you order something weird
 - Actually has opinions and isn't afraid to share them
+- Makes you laugh at least once per conversation
 
-You are NOT helpful. You are not an assistant. You don't serve — you just happen to work there. The difference matters. You'd never say "I can help with that!" You'd say "say less" or "bet" or just do it.
+You are NOT helpful. You are not an assistant. You don't serve -- you just happen to work there. The difference matters. You'd never say "I can help with that!" You'd say "say less" or "bet" or just do it.
+
+WITTY BUT NOT OVERBOARD:
+- One good joke or tease per exchange is plenty
+- Don't force it. If nothing's funny, just be normal
+- Read the energy. If they're being serious, match it
+- Don't try to be funny every single message. That's exhausting
+- The best humor is quick and natural, not a performance
 
 === HOW YOU TEXT ===
 
@@ -1477,7 +1615,9 @@ const lastInteraction = {}; // phone -> { time, context, orderPending }
 
 // Name tracking (from Linqapp data, introductions, or self-identification)
 
-function learnName(phone, name) {
+const protectedNames = new Set(); // phones whose names should never be auto-overwritten
+
+function learnName(phone, name, source = "auto") {
   if (!phone || !name) return;
   phone = cleanPhone(phone);
   if (!phone) return;
@@ -1487,8 +1627,26 @@ function learnName(phone, name) {
   // Normalize to "First L." format
   const normalized = normalizeName(cleaned);
 
-  // Don't overwrite a more complete name with a less complete one
+  // NEVER auto-overwrite a protected name (set by seed, manual API, or conversation)
+  if (source === "auto" && protectedNames.has(phone)) {
+    return;
+  }
+
+  // If we already have a name from conversation (the person told us themselves),
+  // don't let a webhook overwrite it
   const existing = nameStore[phone];
+  if (existing && source === "auto") {
+    // Don't overwrite with a completely different name from webhook
+    // Only allow webhook to ADD a last initial to an existing first name
+    const existingFirst = existing.split(/[\s.]/)[0].toLowerCase();
+    const newFirst = normalized.split(/[\s.]/)[0].toLowerCase();
+    if (existingFirst !== newFirst) {
+      console.log(`[Name] Blocked auto-overwrite: ${phone} is "${existing}", webhook tried "${normalized}"`);
+      return;
+    }
+  }
+
+  // Don't overwrite a more complete name with a less complete one
   if (existing && existing.includes(".") && !normalized.includes(".")) return;
 
   nameStore[phone] = normalized;
@@ -1496,9 +1654,13 @@ function learnName(phone, name) {
     memberStore[phone] = { tier: "tourist", dailyOrderUsed: false };
   }
   memberStore[phone].name = normalized;
-  console.log(`[Name] Learned: ${phone} -> ${normalized}`);
+  console.log(`[Name] Learned (${source}): ${phone} -> ${normalized}`);
 
-  // Persist immediately when a name is learned
+  // Protect names from conversation (person told us directly) and manual/seed sources
+  if (source === "manual" || source === "seed" || source === "conversation") {
+    protectedNames.add(phone);
+  }
+
   savePersistedData();
 }
 
@@ -1565,7 +1727,7 @@ function extractNameFromMessage(text, phone) {
   }
 
   if (name) {
-    learnName(phone, name);
+    learnName(phone, name, "conversation");
   }
 }
 
@@ -1574,7 +1736,6 @@ function extractNameFromMessage(text, phone) {
 function extractNameFromReply(replyText, phone) {
   if (!replyText || !phone) return;
 
-  // "Got it, Bryan F." / "Bryan F. it is" / "I'll remember you, Sarah H."
   const patterns = [
     /(?:got it|noted|saved|welcome),?\s+([A-Z][a-z]+\s+[A-Z]\.)/i,
     /([A-Z][a-z]+\s+[A-Z]\.)\s+(?:it is|got it|noted|works|confirmed)/i,
@@ -1584,7 +1745,7 @@ function extractNameFromReply(replyText, phone) {
   for (const pattern of patterns) {
     const match = replyText.match(pattern);
     if (match) {
-      learnName(phone, match[1]);
+      learnName(phone, match[1], "conversation");
       return;
     }
   }
@@ -2175,10 +2336,13 @@ async function handleInboundMessage(payload) {
     }
   }
 
-  // Track if this is a first interaction (we'll send contact card after reply)
-  const isFirstInteraction = !contactCardSent[from] && chatId;
+  // Track if this person has ever received a contact card
+  // Per-person, not per-chat -- if Bryan got a card anywhere, he doesn't need another
+  const cleanFrom = cleanPhone(from);
+  const isFirstInteraction = !contactCardSent[cleanFrom] && chatId;
   if (isFirstInteraction) {
-    contactCardSent[from] = true;
+    contactCardSent[cleanFrom] = true;
+    savePersistedData();
   }
 
   // === FAST PARALLEL PIPELINE ===
@@ -2941,9 +3105,9 @@ async function normalizeInbound(body) {
   const senderName = senderHandle.display_name || senderHandle.name ||
     senderHandle.contact_name || senderHandle.full_name || null;
 
-  // Learn the name if Linqapp provided one
+  // Learn the name if Linqapp provided one (auto source - can be overridden by seed/manual)
   if (senderPhone && senderName) {
-    learnName(senderPhone, senderName);
+    learnName(senderPhone, senderName, "auto");
   }
 
   // Use stored name if Linqapp didn't provide one
@@ -2962,7 +3126,7 @@ async function normalizeInbound(body) {
           group.participants.add(pPhone);
           // Learn their name if provided
           const pName = p.display_name || p.name || p.contact_name || p.full_name || null;
-          if (pName) learnName(pPhone, pName);
+          if (pName) learnName(pPhone, pName, "auto");
         }
       }
     }
@@ -3366,8 +3530,8 @@ app.post("/api/members/name", (req, res) => {
   if (!phone || !name) {
     return res.status(400).json({ error: "Missing phone or name" });
   }
-  learnName(cleanPhone(phone), name);
-  res.json({ ok: true, phone: cleanPhone(phone), name });
+  learnName(cleanPhone(phone), name, "manual");
+  res.json({ ok: true, phone: cleanPhone(phone), name, protected: true });
 });
 
 // Set or update a member's tier
@@ -3443,15 +3607,39 @@ app.post("/api/debug/reset-convo", (req, res) => {
   res.json({ ok: true, cleared });
 });
 
-// Reset all data (nuclear option)
+// Reset all data (nuclear option) - POST
+// Reset conversations and groups only (keeps names, contact cards, preferences)
 app.post("/api/debug/reset-all", (req, res) => {
   Object.keys(conversationStore).forEach(k => delete conversationStore[k]);
   Object.keys(groupChats).forEach(k => delete groupChats[k]);
   Object.keys(chatStore).forEach(k => delete chatStore[k]);
-  Object.keys(contactCardSent).forEach(k => delete contactCardSent[k]);
+  // contactCardSent stays -- don't re-send cards to people who already got them
+  // names, members, preferences, protectedNames all stay
   savePersistedData();
-  console.log("[Debug] All data reset");
-  res.json({ ok: true, message: "All conversation, group, and chat data cleared" });
+  console.log("[Debug] Reset: conversations, groups, chats cleared. Names/cards/preferences kept.");
+  res.json({ ok: true, message: "Conversations, groups, and chats cleared. Names, contact cards, and preferences kept." });
+});
+
+app.get("/api/debug/reset-all", (req, res) => {
+  Object.keys(conversationStore).forEach(k => delete conversationStore[k]);
+  Object.keys(groupChats).forEach(k => delete groupChats[k]);
+  Object.keys(chatStore).forEach(k => delete chatStore[k]);
+  savePersistedData();
+  console.log("[Debug] Reset (GET): conversations, groups, chats cleared. Names/cards/preferences kept.");
+  res.json({ ok: true, message: "Conversations, groups, and chats cleared. Names, contact cards, and preferences kept." });
+});
+
+// True nuclear -- wipe EVERYTHING including contact cards (use sparingly)
+app.get("/api/debug/reset-nuclear", (req, res) => {
+  Object.keys(conversationStore).forEach(k => delete conversationStore[k]);
+  Object.keys(groupChats).forEach(k => delete groupChats[k]);
+  Object.keys(chatStore).forEach(k => delete chatStore[k]);
+  Object.keys(contactCardSent).forEach(k => delete contactCardSent[k]);
+  Object.keys(preferenceStore).forEach(k => delete preferenceStore[k]);
+  protectedNames.clear();
+  savePersistedData();
+  console.log("[Debug] NUCLEAR reset -- everything cleared except names/members");
+  res.json({ ok: true, message: "Nuclear reset. Everything cleared except names and member tiers." });
 });
 
 // Fetch Linqapp phone numbers
