@@ -1701,18 +1701,18 @@ async function shareContactCard(chatId) {
 
     const msgUrl = `${CONFIG.LINQAPP_SEND_URL}/${chatId}/messages`;
 
-    // Try different attachment message formats
+    // Linqapp only accepts "text" or "media" part types
     const formats = [
-      // Format 1: attachment_id in parts
-      { message: { parts: [{ type: "attachment", attachment_id: attachId }] } },
-      // Format 2: attachments array
-      { message: { parts: [{ type: "text", value: "" }], attachments: [{ id: attachId }] } },
-      // Format 3: attachment at message level
-      { message: { attachments: [{ attachment_id: attachId }] } },
-      // Format 4: just the attachment id
-      { message: { parts: [{ type: "file", attachment_id: attachId }] } },
-      // Format 5: value is the attachment id
-      { message: { parts: [{ type: "attachment", value: attachId }] } },
+      // Format 1: media part with attachment_id
+      { message: { parts: [{ type: "media", attachment_id: attachId }] } },
+      // Format 2: media part with id
+      { message: { parts: [{ type: "media", id: attachId }] } },
+      // Format 3: media part with value
+      { message: { parts: [{ type: "media", value: attachId }] } },
+      // Format 4: media part with url from upload
+      { message: { parts: [{ type: "media", value: slot.data.download_url || slot.data.url || attachId }] } },
+      // Format 5: media part with media_id
+      { message: { parts: [{ type: "media", media_id: attachId }] } },
     ];
 
     for (let i = 0; i < formats.length; i++) {
@@ -1730,9 +1730,7 @@ async function shareContactCard(chatId) {
         console.log(`[Contact] NABI vCard sent with format ${i + 1}: ${res.status}`);
         return { ok: true, status: res.status };
       }
-      if (i < 3) {
-        console.log(`[Contact] Format ${i + 1} failed (${res.status}): ${resText.substring(0, 300)}`);
-      }
+      console.log(`[Contact] Format ${i + 1} failed (${res.status}): ${resText.substring(0, 300)}`);
     }
 
     console.log(`[Contact] All vCard send formats failed`);
