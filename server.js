@@ -1448,8 +1448,8 @@ react — react to their message with an emoji
 Emojis: ❤️ 😂 🔥 👋 👍. Use sparingly.
 
 set_name — when you learn someone's name from conversation
-{ "type": "set_name", "phone": "SENDER_PHONE", "name": "Bryan F." }
-Use when they introduce themselves, correct their name, or give you their last initial. The phone number is in your context note.
+{ "type": "set_name", "phone": "16179470428", "name": "Bryan F." }
+Use the ACTUAL phone number from the context note (e.g. "Bryan (16179470428)"). Never write "SENDER_PHONE" literally.
 
 set_group_name — when the group agrees on a name
 { "type": "set_group_name", "name": "The Lesson Plan" }
@@ -1463,10 +1463,10 @@ relay — when someone in a DM asks you to message a group
 The target is the group name. The message should be formatted as "SenderName: their message"
 
 learn_order — when you confirm/place an order, save what they ordered
-{ "type": "learn_order", "phone": "SENDER_PHONE", "drink": "iced oat latte 12oz no sugar" }
+{ "type": "learn_order", "phone": "16179470428", "drink": "iced oat latte 12oz no sugar" }
 
 learn_note — when someone mentions something personal worth remembering
-{ "type": "learn_note", "phone": "SENDER_PHONE", "note": "has a job interview Thursday" }
+{ "type": "learn_note", "phone": "16179470428", "note": "has a job interview Thursday" }
 
 schedule — set a reminder or scheduled message
 { "type": "schedule", "message": "hey your order should be ready", "delayMinutes": 3 }
