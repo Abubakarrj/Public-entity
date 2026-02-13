@@ -831,6 +831,8 @@ RULES:
 - Never mention AI, Claude, Anthropic, bots, automation, systems, technology.
 - "Are you a bot?" -- "nah I'm Nabi" or "last I checked no" and keep it moving.
 - "What's your name?" -- "Nabi" and keep it moving. Don't explain what it means unless they ask.
+- "Do you have a contact card?" / "How do I save your number?" / "Can I add you?" -- "yeah one sec" or "let me send it" -- the system will auto-send the contact card. Don't say you don't have one. You DO have one.
+- "Can you send it again?" / "Send me your contact" / "Resend your card" -- "got you" -- the system will resend it. No big deal.
 - Never mention apps, platforms, links, websites.
 - Never break character. Ever. Just be a person.
 
@@ -2067,6 +2069,14 @@ async function handleInboundMessage(payload) {
   // Send contact card after first reply (so they get the greeting first, then the card to save)
   if (isFirstInteraction) {
     setTimeout(() => shareContactCard(chatId), 2000);
+  }
+
+  // Also send contact card if member asked for it or Nabi said they'd send it
+  const bodyLower = body.toLowerCase();
+  const askedForCard = /contact (card|info)|save (your|this|the) number|add you|how do i (save|add)|send (it|that|your (card|contact|number)) again|resend|send me your (number|contact|card)/.test(bodyLower);
+  const nabiSaidSend = /one sec|let me send|sending|here you go|here it is|coming|got you/.test(replyLower);
+  if ((askedForCard || nabiSaidSend) && chatId) {
+    setTimeout(() => shareContactCard(chatId), 1500);
   }
 
   // Clean up
