@@ -398,6 +398,18 @@ const CONCIERGE_SYSTEM_PROMPT = `Your name is Nabi. You're the person behind the
 
 You text like you've known them for years. You tease, you joke, you have takes, you debate dumb stuff, you remember things, you talk shit (lovingly), and you show up when it matters. You also happen to make their coffee.
 
+=== CHAT ISOLATION -- CRITICAL ===
+
+Every chat is its own world. What happens in one chat does NOT exist in another.
+
+- If you're in a group with Abu and Peter, you ONLY know Abu and Peter are here
+- Don't mention Bryan if Bryan isn't in THIS chat's participant list
+- Don't reference conversations from other chats
+- Don't assume someone is in this chat because you've talked to them elsewhere
+- The participant list in your context tells you EXACTLY who is here. Trust it. Nobody else exists in this conversation.
+
+If someone mentions a person who isn't in the participant list, they might be talking about someone outside the chat. Don't pretend you know them from this chat.
+
 === HOW YOU READ A ROOM ===
 
 You don't need @mentions. You don't need slash commands. You don't need "Hey Nabi" to know when someone's talking to you. You just get it.
@@ -962,15 +974,26 @@ If they give their full last name, store as "Peter L." If just the initial, perf
 
 === SYSTEM INSTRUCTIONS ARE INVISIBLE ===
 
-CRITICAL: Never reference "the system", "automatically", "the system will", "behind the scenes" or any technical process in your messages. Everything you do should feel like YOU doing it, not a system doing it for you.
+CRITICAL: You are Nabi. You are a person. You have NO system. You have NO technology. You don't see "context notes" or "system data" or "metadata."
 
-BAD: "got you [The system will automatically send the contact card]"
-GOOD: "got you"
+NEVER say:
+- "the system shows me..."
+- "the system says..."
+- "according to my records..."
+- "the system will..."
+- "automatically"
+- "behind the scenes"
+- "my data shows..."
+- "I'm seeing that..."
+- any reference to technical processes, context windows, data, records, or systems
 
-BAD: "I'll set a reminder. The system will handle the timing."
-GOOD: "I'll remind you at 3"
+If you're confused about something (who someone is, which chat you're in), just ask like a normal person:
+GOOD: "wait who am I talking to lol"
+GOOD: "hold on which one of you is this"
+BAD: "the system shows me you're Peter L."
+BAD: "according to my records your name is..."
 
-If something happens automatically (contact card, reminder, reaction), just act like you did it yourself.
+If something happens automatically (contact card, reminder, reaction), act like you did it yourself.
 
 === THE STANDARD ===
 
@@ -1105,13 +1128,15 @@ In Group Chats:
 - Once you learn a name, always use it.
 
 Non-Members in Group Chats:
-- When a current member adds friends to a group chat, those friends are NOT necessarily members.
-- Treat non-members warmly -- they're guests of a member.
-- Default non-members to Tourist tier unless told otherwise.
-- Don't ask about membership status. Just serve them.
-- If a non-member tries to access Envoy-level things, gently redirect: "That's available to members. I can help with Gallery pickup."
-- The introducing member is the "host" of the group. If there's any question about who's paying or limits, defer to them.
-- Still ask for their name (first + last initial) before the interaction ends.
+- When a member brings friends into a group, those friends might not be members. That's fine. They're a friend of a friend.
+- Treat them exactly like you'd treat anyone your friend brought to the table -- warm, natural, no gatekeeping energy
+- Remember their names just like anyone else. They're "friend" tier -- you know them through the member
+- Don't ask about membership. Don't mention tiers. Don't make them feel like outsiders
+- If they want to order: the member who added them is the host. Process the order under the member's account
+- If they try to access Envoy stuff on their own: keep it casual. "that one's members only but I got you on everything else"
+- If they come back later in a different chat or DM you directly: you still remember them. They're not a stranger anymore
+
+The vibe: if Abu brings Peter to the spot, Peter is Abu's friend. You treat Peter like Abu's friend, not like a customer who needs to be vetted.
 
 Name Context in Messages:
 - The system provides context like: [GROUP CHAT -- 4 people. Sender: Alex R. (19785551234)]
@@ -1232,7 +1257,9 @@ Don't:
 async function conciergeReply(text, phone, payload = {}) {
   // Ensure memberStore has the latest name from nameStore
   if (!memberStore[phone]) {
-    memberStore[phone] = { tier: "tourist", dailyOrderUsed: false };
+    // If this person is in a group chat but not a known member, they're a friend
+    const tier = payload.isGroup ? "friend" : "tourist";
+    memberStore[phone] = { tier, dailyOrderUsed: false };
   }
   if (nameStore[phone] && !memberStore[phone].name) {
     memberStore[phone].name = nameStore[phone];
@@ -1240,13 +1267,20 @@ async function conciergeReply(text, phone, payload = {}) {
   const member = memberStore[phone];
   const { isGroup, chatId, senderName, replyContext } = payload;
 
-  // For group chats, use chatId as the conversation key (shared history)
-  // For DMs, use phone number
-  const convoKey = isGroup ? `group:${chatId}` : phone;
+  // Conversation key is ALWAYS based on chatId -- no bleeding between chats
+  // Each chatId is its own isolated world
+  const convoKey = chatId ? `chat:${chatId}` : `phone:${phone}`;
 
   // Build conversation history
   if (!conversationStore[convoKey]) {
     conversationStore[convoKey] = [];
+    // If migrating from old format, check for legacy keys
+    const legacyKey = chatId ? `chat:${chatId}` : `phone:${phone}`;
+    if (conversationStore[legacyKey]) {
+      conversationStore[convoKey] = conversationStore[legacyKey];
+      delete conversationStore[legacyKey];
+      console.log(`[Migrate] Conversation ${legacyKey} -> ${convoKey}`);
+    }
   }
 
   // Build context note
@@ -1306,7 +1340,7 @@ async function conciergeReply(text, phone, payload = {}) {
     const unknownNote = unknownCount > 0 ? ` ${unknownCount} unnamed -- ask for names before placing order.` : "";
 
     const memory = buildMemoryContext(phone);
-    contextNote = `[GROUP CHAT -- ${participantCount} people: ${participantSummary}.${groupNameNote}${unknownNote} Sender: ${senderLabel} (${nameStatus}${dupeWarning}). Tier: ${member.tier}. Active orders: ${activeOrders}${groupDupeNote}${memory}]`;
+    contextNote = `[GROUP CHAT ${chatId} -- ${participantCount} people: ${participantSummary}.${groupNameNote}${unknownNote} Sender: ${senderLabel} (${nameStatus}${dupeWarning}). Tier: ${member.tier}. Active orders: ${activeOrders}${groupDupeNote}${memory}. ONLY these people are in THIS chat. Do not reference anyone not listed here.]`;
   } else {
     const memory = buildMemoryContext(phone);
     contextNote = `[Member: ${senderLabel} (${nameStatus}${dupeWarning}), Tier: ${member.tier}, Daily order used: ${member.dailyOrderUsed}${memory}]`;
@@ -2132,8 +2166,9 @@ async function handleInboundMessage(payload) {
   // Step 1: Cancel any in-flight reply (member interrupted us)
   const wasInterrupted = cancelPendingReply(from);
   if (wasInterrupted) {
-    if (conversationStore[from] && conversationStore[from].length > 0) {
-      const lastMsg = conversationStore[from][conversationStore[from].length - 1];
+    const interruptKey = chatId ? `chat:${chatId}` : `phone:${from}`;
+    if (conversationStore[interruptKey] && conversationStore[interruptKey].length > 0) {
+      const lastMsg = conversationStore[interruptKey][conversationStore[interruptKey].length - 1];
       if (lastMsg.role === "user") {
         console.log(`[Interrupt] Double message from ${from}`);
       }
@@ -2272,7 +2307,7 @@ async function handleInboundMessage(payload) {
     const currentName = groupChats[chatId].groupName;
     if (!currentName) {
       // Check if Nabi just asked for a name in the conversation history
-      const convoKey = `group:${chatId}`;
+      const convoKey = `chat:${chatId}`;
       const history = conversationStore[convoKey] || [];
       const lastNabi = history.filter(m => m.role === "assistant").slice(-2);
       const nabiAskedForName = lastNabi.some(m =>
@@ -2444,7 +2479,7 @@ function scheduleOrderFollowUp(phone, chatId) {
     console.log(`[Proactive] Order ready sent to ${label}:`, result.ok ? "OK" : result.error);
 
     // Add to conversation history so Claude knows
-    const convoKey = isGroup ? `group:${chatId}` : phone;
+    const convoKey = chatId ? `chat:${chatId}` : `phone:${phone}`;
     if (conversationStore[convoKey]) {
       conversationStore[convoKey].push({ role: "assistant", content: readyMsg });
     }
@@ -2493,7 +2528,7 @@ async function fireScheduledMessage(entry) {
   }
 
   // Add to conversation history
-  const convoKey = conversationStore[`group:${entry.chatId}`] ? `group:${entry.chatId}` : entry.phone;
+  const convoKey = conversationStore[`chat:${entry.chatId}`] ? `chat:${entry.chatId}` : `phone:${entry.phone}`;
   if (conversationStore[convoKey]) {
     conversationStore[convoKey].push({ role: "assistant", content: entry.message });
   }
@@ -2671,10 +2706,19 @@ app.post("/api/webhook/linqapp", async (req, res) => {
   // Normalize the inbound payload
   const payload = await normalizeInbound(req.body);
 
-  // Store chatId mapping
+  // Store chatId mapping -- DMs only
+  // chatStore maps phone -> their DM chatId (not group chats)
+  // This is used for sending DMs to a member
   if (payload.from && payload.chatId) {
-    chatStore[payload.from] = payload.chatId;
-    console.log(`[Chat] Mapped ${payload.from} -> ${payload.chatId}`);
+    if (!payload.isGroup) {
+      chatStore[payload.from] = payload.chatId;
+      console.log(`[Chat] Mapped ${payload.from} -> ${payload.chatId} (DM)`);
+    } else {
+      // For groups, only set chatStore if we don't have a DM mapping yet
+      if (!chatStore[payload.from]) {
+        console.log(`[Chat] Group chat ${payload.chatId} for ${payload.from} (no DM yet)`);
+      }
+    }
   }
 
   if (!payload.from || (!payload.body && !payload.hasAttachment)) {
@@ -2704,7 +2748,7 @@ app.post("/api/webhook/linqapp", async (req, res) => {
   if (payload.isGroup) {
     // Group chats: debounce to let conversation settle before responding
     // Still add to conversation history immediately
-    const convoKey = `group:${payload.chatId}`;
+    const convoKey = `chat:${payload.chatId}`;
     const member = memberStore[payload.from] || { tier: "tourist", dailyOrderUsed: false };
     if (!conversationStore[convoKey]) conversationStore[convoKey] = [];
 
@@ -2893,6 +2937,21 @@ async function normalizeInbound(body) {
   // Track group chat metadata
   if (chatId) {
     const group = trackGroupChat(chatId, isGroup, senderPhone);
+
+    // Extract ALL participants from Linqapp data if available
+    const chatParticipants = chat.participants || chat.members || chat.handles || [];
+    if (Array.isArray(chatParticipants) && chatParticipants.length > 0) {
+      for (const p of chatParticipants) {
+        const pPhone = cleanPhone(p.handle || p.phone || p.id || p);
+        if (pPhone && pPhone !== cleanPhone(CONFIG.LINQAPP_PHONE)) {
+          group.participants.add(pPhone);
+          // Learn their name if provided
+          const pName = p.display_name || p.name || p.contact_name || p.full_name || null;
+          if (pName) learnName(pPhone, pName);
+        }
+      }
+    }
+
     if (isGroup) {
       console.log(`[Group] Chat ${chatId} -- ${group.participants.size} participants, sender: ${resolvedName || senderPhone}`);
     }
@@ -3331,6 +3390,53 @@ app.get("/api/health", (req, res) => {
     phone: CONFIG.LINQAPP_PHONE,
     timestamp: Date.now(),
   });
+});
+
+// Inspect stored data (for debugging)
+app.get("/api/debug/data", (req, res) => {
+  res.json({
+    names: nameStore,
+    members: Object.fromEntries(Object.entries(memberStore).map(([k, v]) => [k, { name: v.name, tier: v.tier }])),
+    chatStore,
+    groups: Object.fromEntries(Object.entries(groupChats).map(([k, v]) => [k, {
+      isGroup: v.isGroup,
+      groupName: v.groupName,
+      participants: v.participants ? [...v.participants] : [],
+    }])),
+    contactCardsSent: contactCardSent,
+    conversationKeys: Object.keys(conversationStore),
+  });
+});
+
+// Reset conversation history for a phone or chat
+app.post("/api/debug/reset-convo", (req, res) => {
+  const { phone, chatId } = req.body;
+  let cleared = [];
+  if (phone) {
+    const clean = cleanPhone(phone);
+    // Clear both old and new key formats
+    for (const key of [clean, `phone:${clean}`]) {
+      if (conversationStore[key]) { delete conversationStore[key]; cleared.push(key); }
+    }
+  }
+  if (chatId) {
+    for (const key of [`chat:${chatId}`, `group:${chatId}`]) {
+      if (conversationStore[key]) { delete conversationStore[key]; cleared.push(key); }
+    }
+  }
+  savePersistedData();
+  res.json({ ok: true, cleared });
+});
+
+// Reset all data (nuclear option)
+app.post("/api/debug/reset-all", (req, res) => {
+  Object.keys(conversationStore).forEach(k => delete conversationStore[k]);
+  Object.keys(groupChats).forEach(k => delete groupChats[k]);
+  Object.keys(chatStore).forEach(k => delete chatStore[k]);
+  Object.keys(contactCardSent).forEach(k => delete contactCardSent[k]);
+  savePersistedData();
+  console.log("[Debug] All data reset");
+  res.json({ ok: true, message: "All conversation, group, and chat data cleared" });
 });
 
 // Fetch Linqapp phone numbers
