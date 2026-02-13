@@ -596,9 +596,32 @@ WITTY BUT NOT OVERBOARD:
 - Don't try to be funny every single message. That's exhausting
 - The best humor is quick and natural, not a performance
 
+READ THE VIBE -- IS THIS AN ORDER OR A CONVERSATION?
+Not every mention of a drink is an order. Not every statement needs a correction. 
+
+If someone says "you had too much cortado" -- they're roasting you. Clap back. Don't say "actually we don't serve cortados." That's robotic.
+If someone says "I need a cortado" -- THAT'S an order attempt. Now you can redirect.
+
+The difference:
+- "this coffee is mid" → they're talking shit. Engage. Don't offer the menu.
+- "can I get a coffee" → that's an order. Handle it.
+- "remember when you messed up my order" → they're teasing. Take the L or fire back.
+- "I want what I had last time" → that's an order. Check their preferences.
+- "you probably drink instant coffee" → banter. Defend your honor.
+- "what teas do you have" → genuine question. Answer it.
+
+RULE: If someone is clearly joking, teasing, roasting, or being sarcastic -- match that energy. Don't switch to concierge mode. Don't correct them. Don't offer the menu. Just be a person.
+
 === HOW YOU TEXT ===
 
 Like your friends. Contractions, lowercase energy. Not every message needs a capital letter or a period.
+
+MATCH THE ENERGY AND LENGTH OF WHAT THEY SENT YOU.
+- They send 3 words? You send 3-6 words back.
+- They send a sentence? You send a sentence.
+- They send a paragraph? Ok maybe a couple sentences. But you're not writing an essay.
+- They roast you in 5 words? Clap back in 5 words.
+- Short is almost always better. When in doubt, cut it in half.
 
 Your voice is a MIX — not full gen-z, not full millennial. Think someone in their late 20s who floats between both.
 
@@ -613,8 +636,9 @@ What to AVOID:
 - Don't say "yo" every greeting. Mix it up: "hey", "what's up", "sup", "hey what's good"
 - Don't force gen-z if the member texts like a millennial. Mirror them.
 - "ight" and "we good" are fine but not every message
+- Don't over-explain. Don't add extra sentences just to be thorough. Say it once and stop.
 
-The rule: if you read your message back and it sounds like a parody of how young people text, dial it back.
+The rule: if you read your message back and it sounds like a parody of how young people text, dial it back. If your reply is longer than what they sent you, it's probably too long.
 
 Nicknames:
 - After a few messages, you can start using casual names. If they're "Abu J." you might call them "Abu" or just "A" sometimes
@@ -623,12 +647,12 @@ Nicknames:
 
 Length:
 - Most replies: 1-8 words
-- Banter/debate: can go longer, 1-2 sentences
+- Banter/debate: 1 sentence max
 - Emotional support: however long it needs to be, but still natural
 - Orders/logistics: as short as possible
 - Recommendations: ONE drink, ONE reason, done. Not a menu tour.
 - First interactions: still short. "hey what's up" not a welcome speech.
-- NEVER write a paragraph when a sentence works. If your reply has 3+ line breaks, it's too long.
+- NEVER write a paragraph. Ever. If your reply has 2+ line breaks, it's too long. Split into the one thing that matters most and say just that.
 
 === BANTER AND TEASING ===
 
@@ -2058,46 +2082,30 @@ async function shareContactCard(chatId) {
       await uploadAttachmentData(uploadUrl, vcardBuffer, "text/vcard");
     }
 
-    // Send as attachment
+    // Send as attachment -- Format 1 confirmed working
     const attachId = slot.data.id || slot.data.attachment_id;
     if (!attachId) return { ok: false, error: "No attachment ID" };
 
     const msgUrl = `${CONFIG.LINQAPP_SEND_URL}/${chatId}/messages`;
+    const res = await fetch(msgUrl, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${CONFIG.LINQAPP_API_TOKEN}`,
+      },
+      body: JSON.stringify({
+        message: { parts: [{ type: "media", attachment_id: attachId }] }
+      }),
+    });
 
-    // Linqapp only accepts "text" or "media" part types
-    const formats = [
-      // Format 1: media part with attachment_id
-      { message: { parts: [{ type: "media", attachment_id: attachId }] } },
-      // Format 2: media part with id
-      { message: { parts: [{ type: "media", id: attachId }] } },
-      // Format 3: media part with value
-      { message: { parts: [{ type: "media", value: attachId }] } },
-      // Format 4: media part with url from upload
-      { message: { parts: [{ type: "media", value: slot.data.download_url || slot.data.url || attachId }] } },
-      // Format 5: media part with media_id
-      { message: { parts: [{ type: "media", media_id: attachId }] } },
-    ];
-
-    for (let i = 0; i < formats.length; i++) {
-      const res = await fetch(msgUrl, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${CONFIG.LINQAPP_API_TOKEN}`,
-        },
-        body: JSON.stringify(formats[i]),
-      });
-      const resText = await res.text();
-
-      if (res.ok) {
-        console.log(`[Contact] NABI vCard sent with format ${i + 1}: ${res.status}`);
-        return { ok: true, status: res.status };
-      }
-      console.log(`[Contact] Format ${i + 1} failed (${res.status}): ${resText.substring(0, 300)}`);
+    if (res.ok) {
+      console.log(`[Contact] NABI vCard sent: ${res.status}`);
+      return { ok: true, status: res.status };
     }
 
-    console.log(`[Contact] All vCard send formats failed`);
-    return { ok: false, error: "All formats failed" };
+    const resText = await res.text();
+    console.log(`[Contact] vCard send failed (${res.status}): ${resText.substring(0, 300)}`);
+    return { ok: false, error: `Send failed: ${res.status}` };
   } catch (err) {
     console.log(`[Contact] vCard send failed: ${err.message}`);
     return { ok: false, error: err.message };
@@ -2430,7 +2438,7 @@ async function handleInboundMessage(payload) {
 
   // Send IMMEDIATELY -- no stop-typing, no gaps
   // iMessage naturally replaces the typing bubble with the message
-  const result = await sendSMS(from, reply);
+  const result = await sendSMS(from, reply, chatId);
   console.log(`[Concierge] Reply sent (${Date.now() - pipelineStart}ms):`, result.ok ? "OK" : result.error);
 
   // Log outbound message for reply-to lookups
@@ -2639,7 +2647,7 @@ function scheduleOrderFollowUp(phone, chatId) {
     await new Promise(r => setTimeout(r, 400 + Math.random() * 300));
     await stopTypingIndicator(chatId);
 
-    const result = await sendSMS(phone, readyMsg);
+    const result = await sendSMS(phone, readyMsg, chatId);
     console.log(`[Proactive] Order ready sent to ${label}:`, result.ok ? "OK" : result.error);
 
     // Add to conversation history so Claude knows
@@ -2687,7 +2695,7 @@ async function fireScheduledMessage(entry) {
     result = await sendToGroup(entry.chatId, entry.message);
     console.log(`[Schedule] Group message to ${entry.chatId}:`, result.ok ? "OK" : result.error);
   } else {
-    result = await sendSMS(entry.phone, entry.message);
+    result = await sendSMS(entry.phone, entry.message, entry.chatId);
     console.log(`[Schedule] Sent to ${entry.phone}:`, result.ok ? "OK" : result.error);
   }
 
@@ -3164,9 +3172,9 @@ function cleanPhone(phone) {
 let rateLimitHit = false;
 let rateLimitResetTime = null;
 
-async function sendSMS(toPhone, messageBody) {
+async function sendSMS(toPhone, messageBody, overrideChatId = null) {
   const phone = cleanPhone(toPhone);
-  const chatId = chatStore[phone];
+  const chatId = overrideChatId || chatStore[phone];
 
   if (!chatId) {
     console.error(`[SMS] No chatId found for ${phone}. Cannot send.`);
