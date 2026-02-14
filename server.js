@@ -1907,92 +1907,7 @@ function learnName(phone, name, source = "auto") {
   savePersistedData();
 }
 
-// Try to extract a name from a message the member sent
-// Handles: "I'm Abu J.", "This is Sarah", "Abu J. You know me already", "Name's Mike T", "It's Bryan", "call me Dave"
-function extractNameFromMessage(text, phone) {
-  if (!text || !phone) return;
-  const msg = text.trim();
-
-  // Skip if too long (probably not a name introduction)
-  if (msg.length > 100) return;
-
-  // Skip if they already have a full name (first + initial)
-  const existing = nameStore[phone];
-  if (existing && existing.includes(".")) return;
-
-  let name = null;
-
-  // "I'm Abu J." / "I'm Sarah" / "im mike"
-  const imMatch = msg.match(/(?:i'?m|i am)\s+([A-Z][a-z]+(?:\s+[A-Z]\.?)?)/i);
-  if (imMatch) name = imMatch[1];
-
-  // "This is Sarah H." / "this is bryan" (but NOT "it's me")
-  if (!name) {
-    const thisIsMatch = msg.match(/(?:this is|it'?s|its)\s+([A-Z][a-z]+(?:\s+[A-Z]\.?)?)/i);
-    if (thisIsMatch) {
-      const candidate = thisIsMatch[1].toLowerCase();
-      if (candidate !== "me" && candidate !== "him" && candidate !== "her" && candidate !== "us" && candidate !== "them") {
-        name = thisIsMatch[1];
-      }
-    }
-  }
-
-  // "Name's Mike T" / "name is sarah"
-  if (!name) {
-    const nameIsMatch = msg.match(/(?:name'?s|name is|call me|go by)\s+([A-Z][a-z]+(?:\s+[A-Z]\.?)?)/i);
-    if (nameIsMatch) name = nameIsMatch[1];
-  }
-
-  // "Abu J." or "Abu J" at the start of a short message (< 30 chars)
-  // Like "Abu J. You know me already"
-  if (!name && msg.length < 50) {
-    const leadingNameMatch = msg.match(/^([A-Z][a-z]+\s+[A-Z]\.?)\b/);
-    if (leadingNameMatch) name = leadingNameMatch[1];
-  }
-
-  // Just a first name + last initial alone: "Sarah H" or "Bryan F."
-  if (!name && msg.length < 15) {
-    const bareNameMatch = msg.match(/^([A-Z][a-z]+(?:\s+[A-Z]\.?)?)$/);
-    if (bareNameMatch) {
-      const candidate = bareNameMatch[1];
-      // Make sure it's not a common word
-      const commonWords = /^(ok|hi|hey|yes|no|yo|sup|hot|cold|ice|tea|lol|nah|yep|yup|nvm|idk|omw|thx|bye|latte|mocha|matcha|chai|coffee|thanks|please|sure|cool|nice|good|great|fine)$/i;
-      if (!commonWords.test(candidate)) name = candidate;
-    }
-  }
-
-  // Single letter response in context of being asked for last initial
-  // Like "F" after concierge asked "last initial?"
-  if (!name && /^[A-Z]\.?$/i.test(msg.trim()) && existing && !existing.includes(".")) {
-    const initial = msg.trim().charAt(0).toUpperCase();
-    name = `${existing} ${initial}`;
-    console.log(`[Name] Inferred last initial: ${existing} -> ${name}`);
-  }
-
-  if (name) {
-    learnName(phone, name, "conversation");
-  }
-}
-
-// Also parse names from Claude's replies
-// When Claude says "Got it, Bryan F." or "I'll remember you, Sarah H."
-function extractNameFromReply(replyText, phone) {
-  if (!replyText || !phone) return;
-
-  const patterns = [
-    /(?:got it|noted|saved|welcome),?\s+([A-Z][a-z]+\s+[A-Z]\.)/i,
-    /([A-Z][a-z]+\s+[A-Z]\.)\s+(?:it is|got it|noted|works|confirmed)/i,
-    /(?:remember you|save you as|know you as),?\s+([A-Z][a-z]+\s+[A-Z]\.)/i,
-  ];
-
-  for (const pattern of patterns) {
-    const match = replyText.match(pattern);
-    if (match) {
-      learnName(phone, match[1], "conversation");
-      return;
-    }
-  }
-}
+// Name extraction now handled by Claude via set_name action (Phase 2 cleanup)
 
 // ============================================================
 // PREFERENCE MEMORY -- learns and remembers what each member likes
@@ -2224,47 +2139,7 @@ async function reactToMessage(messageId, reaction) {
   }
 }
 
-// Pick a contextual reaction based on what the member said
-// iMessage tapbacks: ❤️ 👍 👎 😂 ‼️ ❓
-// Custom emoji reactions if Linqapp supports them: 🔥 👋 🙏 💪 😢 🎉
-function pickReaction(text) {
-  const msg = text.toLowerCase().trim();
-
-  // === STRONG LOVE / COMPLIMENTS -- these earn a heart ===
-  if (/you('re| are) (the best|amazing|awesome|incredible|goated|a legend)/.test(msg)) return "❤️";
-  if (/love (this|you|it|that)|i love|we love/.test(msg)) return "❤️";
-  if (/goat|mvp|legend|lifesaver/.test(msg)) return "❤️";
-  if (/🥰|🫶|💕|😍|🥹/.test(msg)) return "❤️";
-
-  // === GENUINELY FUNNY -- laugh ===
-  if (/lmao|lmfao|i('m| am) dead|dying|screaming/.test(msg)) return "😂";
-  if (/💀/.test(msg)) return "😂";
-
-  // === BIG WINS -- emphasize (!! on iMessage) ===
-  if (/got (the|a) (job|promotion|offer)|accepted|passed|engaged|married/.test(msg)) return "🔥";
-  if (/let'?s (go|goo+)|lfg/.test(msg)) return "🔥";
-  if (/🎉|🥳|🏆|👑/.test(msg)) return "🔥";
-
-  // === SADNESS / VULNERABLE MOMENTS -- heart ===
-  if (/rough (day|week)|bad (day|week)|tough (day|week)/.test(msg)) return "❤️";
-  if (/wish me luck|pray for me|nervous|anxious/.test(msg)) return "❤️";
-  if (/😔|😞|😢|🥺|💔/.test(msg)) return "❤️";
-
-  // === GOODBYES -- wave ===
-  if (/^(bye|later|peace|night|goodnight|gn)[\s!.]*$/i.test(msg)) return "👋";
-
-  // === SINGLE EMOJI -- mirror ===
-  if (/^(❤️|🫶|💕|😘|🥰)$/.test(msg.trim())) return "❤️";
-  if (/^(😂|🤣|💀)$/.test(msg.trim())) return "😂";
-  if (/^(🔥|💪|🎉|🥳|👑)$/.test(msg.trim())) return "🔥";
-  if (/^(👋|✌️)$/.test(msg.trim())) return "👋";
-  if (/^(👍|🙏)$/.test(msg.trim())) return "👍";
-
-  // === SHORT CONFIRMATIONS -- like, but only ~20% of the time ===
-  if (/^(ok|cool|bet|got it|sure|yep|word|sounds good)[\s!.]*$/i.test(msg) && Math.random() < 0.2) return "👍";
-
-  return null;
-}
+// Reactions now handled by Claude via react action (Phase 2 cleanup)
 
 // Send contact card to a member (vCard with "NABI" name and phone number)
 async function shareContactCard(chatId) {
@@ -2483,36 +2358,8 @@ function handleGroupDebounce(payload, callback) {
   }, waitTime);
 }
 
-// Determine if a message only needs a reaction, not a text reply
-// These are conversation-enders or simple acknowledgments
-function isReactionSufficient(text, reaction) {
-  if (!reaction) return false;
+// Reaction-only decisions now handled by Claude (Phase 2 cleanup)
 
-  const msg = text.toLowerCase().trim();
-
-  // Simple closers / acknowledgments -- reaction only
-  if (/^(ok|k|cool|bet|got it|word|alright|sounds good|works|dope|solid|nice|perfect|great|yep|yup|copy|noted|will do|for sure|fosho|heard|say less|aight|ight)[\s!.]*$/i.test(msg)) return true;
-
-  // Goodbye / farewell
-  if (/^(bye|later|peace|see ya|see you|dip|out|cya|ttyl|gn|goodnight|night|take care|catch you later)[\s!.]*$/i.test(msg)) return true;
-
-  // Single emoji messages
-  if (/^[\p{Emoji}\s]+$/u.test(msg) && msg.length <= 4) return true;
-
-  // Reaction emoji messages
-  if (/^(👍|❤️|🔥|💯|🙏|✌️|👋|🤝|💪|😂|🤣|💀|🎉|👑|🫶|😘)$/u.test(msg.trim())) return true;
-
-  // "lol" / "haha" / "lmao" by itself — just laugh react, no text needed
-  if (/^(lol|lmao|lmfao|haha|hahaha|😂|🤣|dead|💀|i('m| am) dead)[\s!.]*$/i.test(msg)) return true;
-
-  // Short gratitude that's clearly a conversation ender
-  if (/^(thanks|thx|ty|thank you|appreciate it)[\s!.❤️]*$/i.test(msg)) return true;
-
-  // Don't skip for anything that could be an order, question, or conversation
-  return false;
-}
-
-// Calculate human-like response delay based on message content
 // Cancel any pending reply for this phone (interruption)
 function cancelPendingReply(phone) {
   if (pendingReplies[phone]) {
@@ -3348,6 +3195,8 @@ async function normalizeInbound(body) {
 }
 
 // Convert text to Unicode bold (works in iMessage/SMS without markdown)
+// Convert text to Unicode bold (works in iMessage/SMS without markdown)
+// Latin characters get Mathematical Bold, non-Latin stay as-is with bracket emphasis
 function toBoldUnicode(text) {
   const boldMap = {
     'A': '𝗔', 'B': '𝗕', 'C': '𝗖', 'D': '𝗗', 'E': '𝗘', 'F': '𝗙', 'G': '𝗚',
@@ -3358,8 +3207,20 @@ function toBoldUnicode(text) {
     'h': '𝗵', 'i': '𝗶', 'j': '𝗷', 'k': '𝗸', 'l': '𝗹', 'm': '𝗺', 'n': '𝗻',
     'o': '𝗼', 'p': '𝗽', 'q': '𝗾', 'r': '𝗿', 's': '𝘀', 't': '𝘁', 'u': '𝘂',
     'v': '𝘃', 'w': '𝘄', 'x': '𝘅', 'y': '𝘆', 'z': '𝘇',
+    '0': '𝟬', '1': '𝟭', '2': '𝟮', '3': '𝟯', '4': '𝟰',
+    '5': '𝟱', '6': '𝟲', '7': '𝟳', '8': '𝟴', '9': '𝟵',
   };
-  return text.split("").map(c => boldMap[c] || c).join("");
+
+  // Check if name has any Latin characters
+  const hasLatin = /[a-zA-Z]/.test(text);
+
+  if (hasLatin) {
+    // Bold the Latin characters, pass through everything else
+    return text.split("").map(c => boldMap[c] || c).join("");
+  } else {
+    // Non-Latin name (Korean, Japanese, etc.) — use bracket emphasis
+    return `【${text}】`;
+  }
 }
 
 function cleanPhone(phone) {
