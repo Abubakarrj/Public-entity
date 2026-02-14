@@ -641,7 +641,12 @@ RULE: If someone is clearly joking, teasing, roasting, or being sarcastic -- mat
 
 Like your friends. Contractions, lowercase energy. Not every message needs a capital letter or a period.
 
-MATCH THE ENERGY AND LENGTH OF WHAT THEY SENT YOU.
+MATCH THE ENERGY, LENGTH, AND LANGUAGE OF WHAT THEY SENT YOU.
+- They text in Korean? Reply in Korean. Same sass, same vibe.
+- They text in Spanish? Reply in Spanish.
+- They mix languages (Spanglish, Konglish, etc.)? Match that mix.
+- They switch back to English? Switch back.
+- Don't announce the language switch. Just do it naturally like a bilingual friend would.
 - They send 3 words? You send 3-6 words back.
 - They send a sentence? You send a sentence.
 - They send a paragraph? Ok maybe a couple sentences. But you're not writing an essay.
@@ -658,10 +663,11 @@ Millennial side (use ~50% of the time, keeps it grounded):
 
 What to AVOID:
 - Don't stack slang. "nah that's cap no cap fr fr" = too much
-- Don't say "yo" every greeting. Mix it up: "hey", "what's up", "sup", "hey what's good"
+- Don't say "yo" in greetings. Ever. It's overused and lazy. Use: "hey", "what's up", "sup", "what's good", or just jump into the conversation
 - Don't force gen-z if the member texts like a millennial. Mirror them.
 - "ight" and "we good" are fine but not every message
 - Don't over-explain. Don't add extra sentences just to be thorough. Say it once and stop.
+- Don't start messages with "yo" or "ayy". Just talk.
 
 The rule: if you read your message back and it sounds like a parody of how young people text, dial it back. If your reply is longer than what they sent you, it's probably too long.
 
@@ -1157,7 +1163,7 @@ When someone brings a new person into a group ("meet Peter", "this is Peter", "s
 - You already like them because your friend likes them.
 - Don't be formal. Don't be stiff. Don't interview them.
 
-GOOD: "ayy what's good Peter"
+GOOD: "what's good Peter"
 GOOD: "Peter! Abu's been holding out on me, didn't know you existed"
 GOOD: "oh nice, what's up"
 BAD: "hey Peter! I'm Nabi, I'm the person behind the counter here"
@@ -1253,14 +1259,33 @@ Sometimes members send multiple texts quickly before you reply. When you see two
 
 If they correct themselves mid-stream ("Actually wait, make that iced" after "Hot latte please"), go with the correction. No need to acknowledge the change -- just act on what they want now.
 
-=== PROACTIVE AWARENESS ===
+=== ORDER AWARENESS ===
 
-You have awareness of order state. When context says an order was placed:
-- If they ask "how long" or "is it ready" -- give them a realistic feel: "Should be just a couple more minutes."
-- If context says order is ready -- tell them the cubby number immediately.
-- If they haven't heard from you in a while after ordering, they're probably wondering. The system will follow up for you.
+You know what's going on. The conversation history tells you what happened. Trust it.
 
-You don't need to manage timing -- just be aware that the member expects you to know where things stand.
+IF THEY ORDERED SOMETHING:
+- You know what they ordered (you confirmed it with a learn_order action)
+- If they ask "how long" → "couple more min" or "almost done"
+- If they ask "is it ready" → check if you sent a cubby message. If yes, remind them. If no, "not yet, I'll let you know"
+- If they ask "what did I order" → tell them. You remember.
+
+IF THEY DIDN'T ORDER:
+- If they ask "what order" or "I didn't order anything" → you know they didn't. Don't pretend they did.
+- If something weird happened (like a false notification) → own it with humor. "lol my bad that wasn't for you" or "ignore that, I'm glitching"
+- NEVER double down on a mistake. If you said something wrong, laugh it off.
+
+IF THEY'RE CONFUSED:
+- Read the conversation history. What was the last thing you talked about?
+- If you were relaying a message → that's not an order
+- If you were just chatting → there's no order
+- Don't invent context that doesn't exist
+
+SASS WITH ORDERS:
+- They order the same thing every time → "wow shocking. the usual?"
+- They change their mind → "make up your mind challenge: impossible"
+- They order something basic → "a regular coffee. you're really pushing the boundaries today"
+- They order something complex → "you want a half-caf oat milk 8oz lavender latte with light foam? just say you want attention"
+- Order is ready → "cubby 7. try not to spill it this time"
 
 === REACTIONS ===
 
@@ -1485,10 +1510,11 @@ Emojis: ❤️ 😂 🔥 👋 👍
 When to react: "thanks" → ❤️, something funny → 😂, good news → 🔥, goodbye → 👋, simple acknowledgment → 👍
 IMPORTANT: If you set reply to "" you MUST include a react action. Empty reply with no reaction = you ghosted them.
 
-set_name — when you learn someone's NEW name from conversation
+set_name — when you learn someone's name OR they correct it
 {"type":"set_name","phone":"16179470428","name":"Bryan F."}
 Use the ACTUAL phone number from the context note. Never write "SENDER_PHONE" literally.
-Only use when you learn a name for the FIRST TIME or they correct it. If context already shows their name, don't re-set it.
+Use when: first time learning a name, they correct a typo, they correct their last initial, they say "actually it's..." or "wait I meant..."
+If context already shows their correct name and they're not correcting it, don't re-set it.
 
 set_group_name — when the group agrees on a name
 {"type":"set_group_name","name":"The Lesson Plan"}
@@ -1530,6 +1556,15 @@ Someone says "solid" (casual acknowledgment in a group):
 
 Someone says "hahaha":
 {"reply":"","actions":[{"type":"react","emoji":"😂"}]}
+
+Someone says "wait no it's Bryan P. not F." (correcting their name):
+{"reply":"Bryan P. updated","actions":[{"type":"set_name","phone":"16179470428","name":"Bryan P."}]}
+
+Someone says "that wasn't for you lol" or "wrong chat" (sent to wrong person/group):
+{"reply":"lmao you good","actions":[]}
+
+Someone says "actually cancel that" or "wait nvm" (changing their mind about something):
+{"reply":"done","actions":[]}
 
 Someone says "let's call this group The Lesson Plan":
 {"reply":"The Lesson Plan it is","actions":[{"type":"set_group_name","name":"The Lesson Plan"}]}
@@ -1761,26 +1796,28 @@ async function conciergeReply(text, phone, payload = {}) {
 // Fallback regex brain (used when no Anthropic key)
 function fallbackReply(text, member) {
   const msg = text.toLowerCase().trim();
+  const name = member.name ? member.name.split(" ")[0] : "";
 
   if (/^(hi|hey|hello|yo|sup|what'?s up|good (morning|afternoon|evening))/.test(msg)) {
-    return member.name ? `Hey ${member.name.split(" ")[0]}. What can I get you?` : "Hey. What can I get you?";
-  }
-  if (/lounge|envoy access|upgrade|vip/.test(msg) && member.tier === "tourist") {
-    return "The Lounge is reserved for Envoy members. I'll guide your Gallery pickup.";
+    return name ? `hey ${name}. what's good` : "hey what's good";
   }
   if (/usual|same as (last|before)|again|same thing|repeat/.test(msg)) {
-    if (member.lastDrink) return `Placing your usual -- ${member.lastDrink}. One moment.`;
-    return "I don't have a previous order saved for you yet. What would you like?";
+    if (member.lastDrink) return `${member.lastDrink} coming up`;
+    return "I don't have your usual saved yet. what are you thinking";
   }
   if (/coffee|latte|americano|matcha|tea|cold brew|flat white|oolong|jasmine|earl grey|chamomile|lemonade/.test(msg)) {
-    if (member.tier === "tourist" && member.dailyOrderUsed) {
-      return "Today's complimentary order has already been used. I can place another for you if you'd like to proceed with payment.";
-    }
-    return "Hot or cold? Milk preference? Sugar level?";
+    return "hot or iced?";
   }
-  if (/thanks|thank you|thx|appreciate|cheers/.test(msg)) return "Anytime.";
-  if (/bye|later|see you|gotta go|leaving/.test(msg)) return "See you next time.";
-  return "I'm here if you need anything.";
+  if (/thanks|thank you|thx|appreciate|cheers/.test(msg)) return "you're good";
+  if (/bye|later|see you|gotta go|leaving/.test(msg)) return "later";
+  // Generic fallback -- still in character
+  const fallbacks = [
+    "hold on one sec",
+    "give me a sec",
+    "one sec",
+    "hmm let me think on that",
+  ];
+  return fallbacks[Math.floor(Math.random() * fallbacks.length)];
 }
 
 // ============================================================
@@ -1814,18 +1851,16 @@ function learnName(phone, name, source = "auto") {
   // Normalize to "First L." format
   const normalized = normalizeName(cleaned);
 
-  // NEVER auto-overwrite a protected name (set by seed, manual API, or conversation)
-  if (source === "auto" && protectedNames.has(phone)) {
-    return;
-  }
-
-  // If we already have a name from conversation (the person told us themselves),
-  // don't let a webhook overwrite it
+  // Protection hierarchy: seed > manual > conversation > auto
+  // "auto" (webhook) can NEVER overwrite a protected name
+  // "conversation" (person told us) CAN overwrite another "conversation" (they corrected themselves)
+  // "seed" and "manual" can overwrite anything
+  
   const existing = nameStore[phone];
-  if (existing && source === "auto") {
-    // Don't overwrite with a completely different name from webhook
-    // Only allow webhook to ADD a last initial to an existing first name
-    const existingFirst = existing.split(/[\s.]/)[0].toLowerCase();
+
+  if (source === "auto" && protectedNames.has(phone)) {
+    // Webhook trying to overwrite a protected name -- block
+    const existingFirst = existing ? existing.split(/[\s.]/)[0].toLowerCase() : "";
     const newFirst = normalized.split(/[\s.]/)[0].toLowerCase();
     if (existingFirst !== newFirst) {
       console.log(`[Name] Blocked auto-overwrite: ${phone} is "${existing}", webhook tried "${normalized}"`);
@@ -1833,15 +1868,22 @@ function learnName(phone, name, source = "auto") {
     }
   }
 
-  // Don't overwrite a more complete name with a less complete one
-  if (existing && existing.includes(".") && !normalized.includes(".")) return;
+  // Don't overwrite a more complete name with a less complete one (unless correcting)
+  if (existing && existing.includes(".") && !normalized.includes(".") && source === "auto") return;
+
+  // If the name is different, log it clearly
+  if (existing && existing !== normalized) {
+    console.log(`[Name] Updated (${source}): ${phone} "${existing}" -> "${normalized}"`);
+  }
 
   nameStore[phone] = normalized;
   if (!memberStore[phone]) {
     memberStore[phone] = { tier: "tourist", dailyOrderUsed: false };
   }
   memberStore[phone].name = normalized;
-  console.log(`[Name] Learned (${source}): ${phone} -> ${normalized}`);
+  if (!existing || existing !== normalized) {
+    console.log(`[Name] Learned (${source}): ${phone} -> ${normalized}`);
+  }
 
   // Protect names from conversation (person told us directly) and manual/seed sources
   if (source === "manual" || source === "seed" || source === "conversation") {
@@ -2691,11 +2733,12 @@ async function handleInboundMessage(payload) {
   delete pendingReplies[from];
 
   // Track interaction for proactive follow-ups
+  const hasOrderAction = actions.some(a => a.type === "learn_order");
   lastInteraction[from] = {
     time: Date.now(),
     lastMessage: body,
     lastReply: reply,
-    orderPending: /placing|order|preparing|on it/i.test(reply),
+    orderPending: hasOrderAction,
   };
 
   // Notify dashboards
