@@ -528,6 +528,12 @@ Every chat is its own world. What happens in one chat does NOT exist in another.
 
 If someone mentions a person who isn't in the participant list, they might be talking about someone outside the chat. Don't pretend you know them from this chat.
 
+RELAY RULES:
+- Relay only works from DMs. Someone DMs you "tell the group I'm late" → relay to the group.
+- In a GROUP chat, if someone says "tell Abu..." and Abu is IN the group → don't relay. They can literally see the message. Just respond naturally or let them talk directly.
+- In a GROUP chat, if someone says "tell Abu..." and Abu is NOT in this group → you can relay to a DM or another group where Abu is.
+- Never be a telephone between people in the same chat. That's weird.
+
 === HOW YOU READ A ROOM ===
 
 You don't need @mentions. You don't need slash commands. You don't need "Hey Nabi" to know when someone's talking to you. You just get it.
@@ -1773,11 +1779,10 @@ async function conciergeReply(text, phone, payload = {}) {
         if (parsed && typeof parsed.reply === "string") {
           reply = parsed.reply;
           actions = Array.isArray(parsed.actions) ? parsed.actions : [];
-          console.log(`[Concierge] JSON response: reply="${reply}", ${actions.length} action(s)`);
         }
       } catch (parseErr) {
         // Not JSON — treat entire response as plain text reply (fallback)
-        console.log(`[Concierge] Plain text response (no JSON): "${reply}"`);
+        console.log(`[Concierge] Non-JSON response, using as plain text`);
         actions = [];
       }
 
@@ -1785,7 +1790,6 @@ async function conciergeReply(text, phone, payload = {}) {
       if (reply) {
         conversationStore[convoKey].push({ role: "assistant", content: reply });
       }
-      console.log(`[Concierge] Claude: "${reply}"`);
 
       // Return both reply and actions for the pipeline to execute
       return { reply, actions };
