@@ -54,9 +54,237 @@ app.use(express.urlencoded({ extended: true }));
 // Request logging
 app.use((req, res, next) => {
   const ts = new Date().toISOString();
-  console.log(`[${ts}] ${req.method} ${req.path}`);
+  if (req.path !== "/") console.log(`[${ts}] ${req.method} ${req.path}`);
   next();
 });
+
+// -- Dashboard (served at root) --
+app.get("/", (req, res) => {
+  res.send(DASHBOARD_HTML);
+});
+
+const DASHBOARD_HTML = `<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<title>Nabi — Public Entity</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { font-family: -apple-system, BlinkMacSystemFont, 'SF Pro', system-ui, sans-serif; background: #0a0a0a; color: #e5e5e5; height: 100dvh; overflow: hidden; }
+
+  .app { display: flex; flex-direction: column; height: 100dvh; }
+
+  /* Header */
+  .header { padding: 12px 16px; background: #111; border-bottom: 1px solid #222; display: flex; align-items: center; justify-content: space-between; flex-shrink: 0; }
+  .header h1 { font-size: 18px; font-weight: 600; letter-spacing: -0.3px; }
+  .header h1 span { color: #888; font-weight: 400; font-size: 14px; margin-left: 8px; }
+  .status { display: flex; align-items: center; gap: 6px; font-size: 12px; color: #666; }
+  .status-dot { width: 7px; height: 7px; border-radius: 50%; background: #333; }
+  .status-dot.live { background: #22c55e; box-shadow: 0 0 6px #22c55e88; }
+
+  /* Stats bar */
+  .stats { display: flex; gap: 16px; padding: 10px 16px; background: #0f0f0f; border-bottom: 1px solid #1a1a1a; font-size: 12px; color: #666; flex-shrink: 0; overflow-x: auto; }
+  .stat { white-space: nowrap; }
+  .stat b { color: #ccc; font-weight: 500; }
+
+  /* Messages */
+  .messages { flex: 1; overflow-y: auto; padding: 12px 16px; display: flex; flex-direction: column; gap: 6px; }
+  .msg { max-width: 85%; padding: 8px 12px; border-radius: 16px; font-size: 14px; line-height: 1.4; word-wrap: break-word; animation: fadeIn 0.15s ease; }
+  @keyframes fadeIn { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: translateY(0); } }
+  .msg.inbound { background: #1c1c1e; align-self: flex-start; border-bottom-left-radius: 4px; }
+  .msg.outbound { background: #1a3a2a; align-self: flex-end; border-bottom-right-radius: 4px; }
+  .msg.system { background: none; align-self: center; color: #555; font-size: 11px; padding: 4px 0; }
+  .msg .meta { font-size: 10px; color: #555; margin-bottom: 2px; }
+  .msg .meta .name { color: #888; font-weight: 500; }
+  .msg .actions { font-size: 10px; color: #4a9; margin-top: 3px; }
+
+  /* Compose */
+  .compose { padding: 10px 16px; background: #111; border-top: 1px solid #222; display: flex; gap: 8px; flex-shrink: 0; }
+  .compose input { flex: 1; background: #1c1c1e; border: 1px solid #333; border-radius: 20px; padding: 8px 14px; color: #e5e5e5; font-size: 14px; outline: none; }
+  .compose input:focus { border-color: #4a9; }
+  .compose input::placeholder { color: #555; }
+  .compose button { background: #1a3a2a; color: #4a9; border: none; border-radius: 20px; padding: 8px 16px; font-size: 13px; font-weight: 500; cursor: pointer; }
+  .compose button:active { background: #2a4a3a; }
+
+  /* Toggle */
+  .mode-toggle { display: flex; align-items: center; gap: 6px; }
+  .mode-toggle label { font-size: 11px; color: #666; }
+  .toggle { width: 36px; height: 20px; background: #333; border-radius: 10px; position: relative; cursor: pointer; transition: background 0.2s; }
+  .toggle.on { background: #22c55e; }
+  .toggle::after { content: ''; position: absolute; top: 2px; left: 2px; width: 16px; height: 16px; background: white; border-radius: 50%; transition: transform 0.2s; }
+  .toggle.on::after { transform: translateX(16px); }
+
+  /* Empty state */
+  .empty { flex: 1; display: flex; align-items: center; justify-content: center; color: #333; font-size: 14px; }
+</style>
+</head>
+<body>
+<div class="app">
+  <div class="header">
+    <h1>NABI <span>Public Entity</span></h1>
+    <div style="display:flex;align-items:center;gap:12px;">
+      <div class="mode-toggle">
+        <label>Auto</label>
+        <div class="toggle on" id="autoToggle" onclick="toggleAuto()"></div>
+      </div>
+      <div class="status">
+        <div class="status-dot" id="statusDot"></div>
+        <span id="statusText">connecting</span>
+      </div>
+    </div>
+  </div>
+
+  <div class="stats" id="stats">
+    <div class="stat">Messages: <b id="msgCount">0</b></div>
+    <div class="stat">Members: <b id="memberCount">—</b></div>
+    <div class="stat">Groups: <b id="groupCount">—</b></div>
+  </div>
+
+  <div class="messages" id="messages">
+    <div class="empty" id="emptyState">Listening for messages...</div>
+  </div>
+
+  <div class="compose">
+    <input type="text" id="replyInput" placeholder="Manual reply (select conversation first)" disabled />
+    <button id="sendBtn" onclick="sendManual()">Send</button>
+  </div>
+</div>
+
+<script>
+const WS_URL = location.protocol === 'https:' ? 'wss://' + location.host + '/ws' : 'ws://' + location.host + '/ws';
+let ws;
+let msgCount = 0;
+let autoMode = true;
+let selectedPhone = null;
+let selectedChatId = null;
+
+function connect() {
+  ws = new WebSocket(WS_URL);
+
+  ws.onopen = () => {
+    document.getElementById('statusDot').className = 'status-dot live';
+    document.getElementById('statusText').textContent = 'live';
+  };
+
+  ws.onclose = () => {
+    document.getElementById('statusDot').className = 'status-dot';
+    document.getElementById('statusText').textContent = 'reconnecting...';
+    setTimeout(connect, 2000);
+  };
+
+  ws.onmessage = (e) => {
+    try {
+      const data = JSON.parse(e.data);
+      handleEvent(data);
+    } catch(err) { console.error('WS parse error', err); }
+  };
+}
+
+function handleEvent(data) {
+  const el = document.getElementById('emptyState');
+  if (el) el.remove();
+
+  switch(data.type) {
+    case 'inbound_message':
+      addMessage(data, 'inbound');
+      break;
+    case 'outbound_message':
+      addMessage(data, 'outbound');
+      break;
+    case 'reaction_only':
+      addSystem(data.reaction + ' reacted to "' + (data.body||'').substring(0,30) + '"');
+      break;
+    default:
+      if (data.type) addSystem(data.type.replace(/_/g,' '));
+  }
+}
+
+function addMessage(data, dir) {
+  msgCount++;
+  document.getElementById('msgCount').textContent = msgCount;
+
+  const container = document.getElementById('messages');
+  const div = document.createElement('div');
+  div.className = 'msg ' + dir;
+
+  const phone = dir === 'inbound' ? data.from : data.to;
+  const name = data.senderName || phone || '';
+  const time = new Date().toLocaleTimeString([], {hour:'numeric', minute:'2-digit'});
+
+  let meta = '<div class="meta">';
+  if (dir === 'inbound') {
+    meta += '<span class="name">' + esc(name) + '</span> · ' + time;
+    if (data.isGroup) meta += ' · group';
+    selectedPhone = data.from;
+    selectedChatId = data.chatId;
+    document.getElementById('replyInput').disabled = false;
+    document.getElementById('replyInput').placeholder = 'Reply to ' + name + '...';
+  } else {
+    meta += '<span class="name">Nabi</span> · ' + time;
+    if (data.timing) meta += ' · ' + data.timing + 'ms';
+  }
+  meta += '</div>';
+
+  div.innerHTML = meta + esc(data.body || '');
+
+  container.appendChild(div);
+  container.scrollTop = container.scrollHeight;
+}
+
+function addSystem(text) {
+  const container = document.getElementById('messages');
+  const div = document.createElement('div');
+  div.className = 'msg system';
+  div.textContent = text;
+  container.appendChild(div);
+  container.scrollTop = container.scrollHeight;
+}
+
+function esc(s) { const d = document.createElement('div'); d.textContent = s; return d.innerHTML; }
+
+function toggleAuto() {
+  autoMode = !autoMode;
+  const el = document.getElementById('autoToggle');
+  el.className = autoMode ? 'toggle on' : 'toggle';
+  if (ws && ws.readyState === 1) {
+    ws.send(JSON.stringify({ type: autoMode ? 'enable_auto' : 'disable_auto' }));
+  }
+}
+
+function sendManual() {
+  const input = document.getElementById('replyInput');
+  const text = input.value.trim();
+  if (!text || !selectedPhone) return;
+
+  if (ws && ws.readyState === 1) {
+    ws.send(JSON.stringify({
+      type: 'manual_reply',
+      to: selectedPhone,
+      chatId: selectedChatId,
+      body: text
+    }));
+  }
+  input.value = '';
+}
+
+document.getElementById('replyInput').addEventListener('keydown', (e) => {
+  if (e.key === 'Enter') sendManual();
+});
+
+// Fetch initial stats
+fetch('/api/debug/data').then(r=>r.json()).then(d => {
+  document.getElementById('memberCount').textContent = Object.keys(d.members||{}).length;
+  document.getElementById('groupCount').textContent = Object.keys(d.groups||{}).filter(k => d.groups[k].isGroup).length;
+}).catch(()=>{});
+
+connect();
+</script>
+</body>
+</html>`;
+
 
 // -- WebSocket Server --
 const wss = new WebSocket.Server({ server, path: "/ws" });
@@ -1522,7 +1750,8 @@ AVAILABLE ACTIONS:
 
 react — react to their message with an emoji
 {"type":"react","emoji":"😂"}
-Emojis: ❤️ 😂 🔥 👋 👍
+Native tapbacks: ❤️ 👍 👎 😂 ‼️ ❓
+Custom emoji: any emoji works (🔥 👋 🙏 💪 🫶 👑 💀 etc.)
 When to react: "thanks" → ❤️, something funny → 😂, good news → 🔥, goodbye → 👋, simple acknowledgment → 👍
 IMPORTANT: If you set reply to "" you MUST include a react action. Empty reply with no reaction = you ghosted them.
 
@@ -1549,6 +1778,12 @@ learn_note — when someone mentions something personal worth remembering
 
 schedule — set a reminder or scheduled message
 {"type":"schedule","message":"hey your order should be ready","delayMinutes":3}
+
+effect — send an iMessage effect with your reply. USE SPARINGLY (birthdays, celebrations, hype moments)
+Screen effects: confetti, fireworks, lasers, sparkles, celebration, hearts, love, balloons, happy_birthday, echo, spotlight
+Bubble effects: slam, loud, gentle, invisible
+{"type":"effect","effect":"confetti"}
+Don't overuse. Maybe 1 in 50 messages. If someone says "it's my birthday" → confetti. Someone's hyped → fireworks. A secret → invisible.
 
 EXAMPLES:
 
@@ -1907,7 +2142,6 @@ function learnName(phone, name, source = "auto") {
   savePersistedData();
 }
 
-// Name extraction now handled by Claude via set_name action (Phase 2 cleanup)
 
 // ============================================================
 // PREFERENCE MEMORY -- learns and remembers what each member likes
@@ -2100,7 +2334,7 @@ async function reactToMessage(messageId, reaction) {
 
   const url = `https://api.linqapp.com/api/partner/v3/messages/${messageId}/reactions`;
 
-  // Map emoji to iMessage tapback type names
+  // iMessage native tapbacks
   const tapbackMap = {
     "❤️": "love",
     "👍": "like",
@@ -2108,11 +2342,12 @@ async function reactToMessage(messageId, reaction) {
     "😂": "laugh",
     "‼️": "emphasize",
     "❓": "question",
-    "🔥": "emphasize",
-    "👋": "like",
   };
 
-  const tapbackType = tapbackMap[reaction] || "like";
+  const tapbackType = tapbackMap[reaction];
+  const body = tapbackType
+    ? { operation: "add", type: tapbackType }
+    : { operation: "add", type: "custom", custom_emoji: reaction };
 
   try {
     const res = await fetch(url, {
@@ -2121,16 +2356,15 @@ async function reactToMessage(messageId, reaction) {
         "Content-Type": "application/json",
         Authorization: `Bearer ${CONFIG.LINQAPP_API_TOKEN}`,
       },
-      body: JSON.stringify({ operation: "add", type: tapbackType }),
+      body: JSON.stringify(body),
     });
 
-    const text = await res.text();
-
     if (res.ok) {
-      console.log(`[React] ${reaction} (${tapbackType}) on ${messageId}: OK`);
+      console.log(`[React] ${reaction} on ${messageId}: OK`);
       return { ok: true };
     }
 
+    const text = await res.text();
     console.log(`[React] Failed (${res.status}): ${text.substring(0, 200)}`);
     return { ok: false, status: res.status };
   } catch (err) {
@@ -2139,7 +2373,6 @@ async function reactToMessage(messageId, reaction) {
   }
 }
 
-// Reactions now handled by Claude via react action (Phase 2 cleanup)
 
 // Send contact card to a member (vCard with "NABI" name and phone number)
 async function shareContactCard(chatId) {
@@ -2280,6 +2513,8 @@ async function sendReadReceipt(chatId) {
 // Send typing indicator via Linqapp
 async function sendTypingIndicator(chatId) {
   if (!chatId) return;
+  // V3 API: "Group chat typing indicators are not currently supported"
+  if (groupChats[chatId] && groupChats[chatId].isGroup) return;
   try {
     const url = `${CONFIG.LINQAPP_SEND_URL}/${chatId}/typing`;
     const res = await fetch(url, {
@@ -2295,23 +2530,6 @@ async function sendTypingIndicator(chatId) {
   }
 }
 
-// Stop typing indicator via Linqapp
-async function stopTypingIndicator(chatId) {
-  if (!chatId) return;
-  try {
-    const url = `${CONFIG.LINQAPP_SEND_URL}/${chatId}/typing`;
-    const res = await fetch(url, {
-      method: "DELETE",
-      headers: {
-        Accept: "*/*",
-        Authorization: `Bearer ${CONFIG.LINQAPP_API_TOKEN}`,
-      },
-    });
-    console.log(`[Typing] Stop: ${res.status}`);
-  } catch (err) {
-    console.log(`[Typing] Stop failed (non-critical): ${err.message}`);
-  }
-}
 
 // ============================================================
 // GROUP DEBOUNCE -- Wait for conversation to settle before responding
@@ -2358,7 +2576,6 @@ function handleGroupDebounce(payload, callback) {
   }, waitTime);
 }
 
-// Reaction-only decisions now handled by Claude (Phase 2 cleanup)
 
 // Cancel any pending reply for this phone (interruption)
 function cancelPendingReply(phone) {
@@ -2415,7 +2632,7 @@ async function executeActions(actions, context) {
             if (targetGroup) {
               const boldMessage = action.message.replace(/^([^:]+):/, (m, name) => `${toBoldUnicode(name)}:`);
               setTimeout(() => {
-                sendToGroup(targetGroup.chatId, boldMessage);
+                sendSMS(null, boldMessage, targetGroup.chatId);
                 console.log(`[Action] Relay to "${action.target}": "${boldMessage}"`);
               }, 1000);
             } else {
@@ -2444,6 +2661,12 @@ async function executeActions(actions, context) {
             scheduleMessage(from, chatId, action.message, action.delayMinutes * 60 * 1000);
             console.log(`[Action] Schedule: "${action.message}" in ${action.delayMinutes}min`);
           }
+          break;
+
+        case "effect":
+          // Stored for the reply send — picked up by handleInboundMessage
+          // Effect is applied to Nabi's reply message
+          console.log(`[Action] Effect queued: ${action.effect}`);
           break;
 
         default:
@@ -2624,7 +2847,9 @@ async function handleInboundMessage(payload) {
   // Send reply (if not empty -- empty means reaction-only)
   let sendResult = { ok: false };
   if (reply && reply.trim()) {
-    sendResult = await sendSMS(from, reply, chatId);
+    const effectAction = actions.find(a => a.type === "effect");
+    const sendOptions = effectAction ? { effect: effectAction.effect } : {};
+    sendResult = await sendSMS(from, reply, chatId, sendOptions);
     console.log(`[Concierge] Reply sent (${Date.now() - pipelineStart}ms):`, sendResult.ok ? "OK" : sendResult.error);
 
     if (sendResult.ok && sendResult.messageId) {
@@ -2713,10 +2938,9 @@ function scheduleOrderFollowUp(phone, chatId) {
       readyMsg = `Your order is ready. Cubby #${cubby}, just inside the Gallery.`;
     }
 
-    // Typing indicator first -- quick
+    // Typing indicator first -- quick (auto-stopped when message sends)
     await sendTypingIndicator(chatId);
     await new Promise(r => setTimeout(r, 400 + Math.random() * 300));
-    await stopTypingIndicator(chatId);
 
     const result = await sendSMS(phone, readyMsg, chatId);
     console.log(`[Proactive] Order ready sent to ${label}:`, result.ok ? "OK" : result.error);
@@ -2763,7 +2987,7 @@ async function fireScheduledMessage(entry) {
   let result;
   if (entry.isGroup || !entry.phone) {
     // Group message -- send directly to chat
-    result = await sendToGroup(entry.chatId, entry.message);
+    result = await sendSMS(null, entry.message, entry.chatId);
     console.log(`[Schedule] Group message to ${entry.chatId}:`, result.ok ? "OK" : result.error);
   } else {
     result = await sendSMS(entry.phone, entry.message, entry.chatId);
@@ -2868,28 +3092,6 @@ function findGroupByName(name) {
 }
 
 // Send a message to a group chat (used for relays and group reminders)
-async function sendToGroup(chatId, message) {
-  if (!chatId) return { ok: false, error: "No chatId" };
-
-  const url = `${CONFIG.LINQAPP_SEND_URL}/${chatId}/messages`;
-  try {
-    const res = await fetch(url, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${CONFIG.LINQAPP_API_TOKEN}`,
-      },
-      body: JSON.stringify({
-        message: { parts: [{ type: "text", value: message }] },
-      }),
-    });
-    console.log(`[GroupRelay] Sent to ${chatId}: ${res.status}`);
-    return { ok: res.ok, status: res.status };
-  } catch (err) {
-    console.log(`[GroupRelay] Error: ${err.message}`);
-    return { ok: false, error: err.message };
-  }
-}
 
 // Schedule a group reminder
 function scheduleGroupReminder(chatId, message, delayMs) {
@@ -2911,7 +3113,7 @@ app.post("/api/group/relay", async (req, res) => {
   }
   const senderName = fromPhone ? getName(cleanPhone(fromPhone)) : null;
   const relayMsg = senderName ? `${senderName} says: ${message}` : message;
-  const result = await sendToGroup(chatId, relayMsg);
+  const result = await sendSMS(null, relayMsg, chatId);
   res.json(result);
 });
 
@@ -3231,7 +3433,6 @@ async function normalizeInbound(body) {
 }
 
 // Convert text to Unicode bold (works in iMessage/SMS without markdown)
-// Convert text to Unicode bold (works in iMessage/SMS without markdown)
 // Latin characters get Mathematical Bold, non-Latin stay as-is with bracket emphasis
 function toBoldUnicode(text) {
   const boldMap = {
@@ -3270,26 +3471,39 @@ function cleanPhone(phone) {
 let rateLimitHit = false;
 let rateLimitResetTime = null;
 
-async function sendSMS(toPhone, messageBody, overrideChatId = null) {
-  const phone = cleanPhone(toPhone);
-  const chatId = overrideChatId || chatStore[phone];
+async function sendSMS(toPhone, messageBody, overrideChatId = null, options = {}) {
+  const phone = toPhone ? cleanPhone(toPhone) : null;
+  const chatId = overrideChatId || (phone ? chatStore[phone] : null);
 
   if (!chatId) {
-    console.error(`[SMS] No chatId found for ${phone}. Cannot send.`);
-    return { ok: false, error: "No chatId for this phone number" };
+    console.error(`[SMS] No chatId found for ${phone || "group"}. Cannot send.`);
+    return { ok: false, error: "No chatId" };
   }
 
   // If we know we're rate limited, don't even try
   if (rateLimitHit && rateLimitResetTime && Date.now() < rateLimitResetTime) {
     const minsLeft = Math.ceil((rateLimitResetTime - Date.now()) / 60000);
-    console.log(`[SMS] Rate limited -- ${minsLeft}min remaining. Queuing for ${phone}`);
-    // Queue for later
+    console.log(`[SMS] Rate limited -- ${minsLeft}min remaining. Queuing.`);
     queuedMessages.push({ phone, chatId, body: messageBody, queuedAt: Date.now() });
     return { ok: false, error: "rate_limited", queued: true };
   }
 
   const url = `${CONFIG.LINQAPP_SEND_URL}/${chatId}/messages`;
-  console.log(`[SMS] Sending to ${phone} (chat: ${chatId}): "${messageBody}"`);
+  console.log(`[SMS] Sending to ${phone || "group"} (chat: ${chatId}): "${messageBody}"${options.effect ? ` [${options.effect}]` : ""}`);
+
+  // Build message payload
+  const message = { parts: [{ type: "text", value: messageBody }] };
+
+  // Add iMessage effect if specified
+  if (options.effect) {
+    const screenEffects = ["confetti", "fireworks", "lasers", "sparkles", "celebration", "hearts", "love", "balloons", "happy_birthday", "echo", "spotlight"];
+    const bubbleEffects = ["slam", "loud", "gentle", "invisible"];
+    if (screenEffects.includes(options.effect)) {
+      message.effect = { screen_effect: options.effect };
+    } else if (bubbleEffects.includes(options.effect)) {
+      message.effect = { bubble_effect: options.effect };
+    }
+  }
 
   try {
     const res = await fetch(url, {
@@ -3298,11 +3512,7 @@ async function sendSMS(toPhone, messageBody, overrideChatId = null) {
         "Content-Type": "application/json",
         Authorization: `Bearer ${CONFIG.LINQAPP_API_TOKEN}`,
       },
-      body: JSON.stringify({
-        message: {
-          parts: [{ type: "text", value: messageBody }],
-        },
-      }),
+      body: JSON.stringify({ message }),
     });
 
     const responseText = await res.text();
@@ -3771,38 +3981,12 @@ app.get("/api/phonenumbers", async (req, res) => {
 
     if (response.ok) {
       console.log("[API] Phone numbers fetched:", JSON.stringify(data));
-      // Broadcast to dashboards so they can auto-detect
       broadcast({ type: "phonenumbers", data, timestamp: Date.now() });
       return res.json({ ok: true, data });
     }
 
-    // Try X-API-Key if Bearer fails
-    if (response.status === 401 || response.status === 403) {
-      const retryRes = await fetch(CONFIG.LINQAPP_NUMBERS_URL, {
-        method: "GET",
-        headers: {
-          Accept: "*/*",
-          "X-API-Key": CONFIG.LINQAPP_API_TOKEN,
-        },
-      });
-
-      const retryText = await retryRes.text();
-      let retryData;
-      try {
-        retryData = JSON.parse(retryText);
-      } catch {
-        retryData = { raw: retryText };
-      }
-
-      if (retryRes.ok) {
-        broadcast({ type: "phonenumbers", data: retryData, timestamp: Date.now() });
-        return res.json({ ok: true, data: retryData });
-      }
-
-      return res.status(retryRes.status).json({ ok: false, status: retryRes.status, error: retryText });
-    }
-
-    res.status(response.status).json({ ok: false, status: response.status, error: text });
+    console.error("[API] Phone numbers failed:", response.status, text);
+    return res.status(response.status).json({ ok: false, error: text });
   } catch (err) {
     console.error("[API] Phone numbers fetch error:", err.message);
     res.status(500).json({ ok: false, error: err.message });
