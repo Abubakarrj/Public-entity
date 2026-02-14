@@ -2595,12 +2595,20 @@ async function handleInboundMessage(payload) {
   // Name extraction now handled by Claude via set_name action
   const pipelineStart = Date.now();
 
-  // Start typing after a quick glance (400-800ms)
-  // Skip if group debounce already started typing
-  const readDelay = 400 + Math.random() * 400;
+  // Start typing immediately for groups (debounce already waited)
+  // For DMs, short delay to simulate glancing at the message
   if (!payload.typingAlreadySent) {
+    const readDelay = 400 + Math.random() * 400;
     setTimeout(() => sendTypingIndicator(chatId), readDelay);
+  } else {
+    // Group: typing was sent at debounce time, re-fire now to refresh it
+    sendTypingIndicator(chatId);
   }
+
+  // Typing keepalive -- re-fire every 1.5s so the bubble NEVER drops while Claude thinks
+  const typingKeepalive = setInterval(() => {
+    sendTypingIndicator(chatId);
+  }, 1500);
 
   // Generate reply IN PARALLEL (Claude starts thinking immediately)
   // Build member's group list for relay context (DMs only)
@@ -2616,9 +2624,17 @@ async function handleInboundMessage(payload) {
   });
 
   const result = await replyPromise;
+  clearInterval(typingKeepalive); // Stop keepalive once Claude responds
   const reply = typeof result === "object" ? result.reply : result;
   const actions = typeof result === "object" ? (result.actions || []) : [];
   console.log(`[Concierge] "${body}" -> "${reply}" (${actions.length} actions)`);
+
+  // === EXECUTE PRE-REPLY ACTIONS (reactions fire BEFORE the text) ===
+  const reactAction = actions.find(a => a.type === "react");
+  if (reactAction && reactAction.emoji && messageId) {
+    reactToMessage(messageId, reactAction.emoji);
+    console.log(`[Action] React: ${reactAction.emoji}`);
+  }
 
   // Ensure the typing bubble was visible for a natural amount of time
   const elapsed = Date.now() - pipelineStart;
@@ -2640,17 +2656,11 @@ async function handleInboundMessage(payload) {
     return;
   }
 
-  // === EXECUTE ACTIONS (Claude is the brain, server is the hands) ===
+  // === EXECUTE POST-REPLY ACTIONS (everything except react) ===
   for (const action of actions) {
+    if (action.type === "react") continue; // already fired above
     try {
       switch (action.type) {
-        case "react":
-          if (action.emoji && messageId) {
-            setTimeout(() => reactToMessage(messageId, action.emoji), 200);
-            console.log(`[Action] React: ${action.emoji}`);
-          }
-          break;
-
         case "set_name":
           if (action.phone && action.name) {
             learnName(cleanPhone(action.phone), action.name, "conversation");
