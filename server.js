@@ -2541,12 +2541,28 @@ async function reactToMessage(messageId, reaction) {
 }
 
 
-// Send contact card to a member (vCard with "NABI" name and phone number)
+// Share contact card with a chat
+// 1. V3 native endpoint (shares device Name & Photo)
+// 2. Custom NABI vCard as attachment (so they can save the number)
 async function shareContactCard(chatId) {
   if (!chatId) return;
 
-  // Send our custom NABI vCard as an attachment
   try {
+    // Step 1: Native V3 contact sharing (Name and Photo Sharing)
+    const nativeUrl = `${CONFIG.LINQAPP_SEND_URL}/${chatId}/share_contact_card`;
+    const nativeRes = await fetch(nativeUrl, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${CONFIG.LINQAPP_API_TOKEN}`,
+      },
+    });
+    if (nativeRes.ok || nativeRes.status === 204) {
+      console.log(`[Contact] Native contact card shared: ${nativeRes.status}`);
+    } else {
+      console.log(`[Contact] Native share failed (${nativeRes.status}), continuing with vCard`);
+    }
+
+    // Step 2: Custom NABI vCard attachment (saveable contact)
     const phone = CONFIG.LINQAPP_PHONE.startsWith("+")
       ? CONFIG.LINQAPP_PHONE
       : `+1${CONFIG.LINQAPP_PHONE}`;
@@ -2562,23 +2578,19 @@ async function shareContactCard(chatId) {
     ].join("\r\n");
 
     const vcardBuffer = Buffer.from(vcard, "utf8");
-
-    // Create upload slot
     const slot = await createAttachmentUpload("Nabi.vcf", "text/vcard", vcardBuffer.length);
     if (!slot.ok || !slot.data) {
       console.log("[Contact] vCard upload slot failed");
-      return { ok: false, error: "Upload slot failed" };
+      return { ok: nativeRes.ok, error: "vCard upload failed but native may have worked" };
     }
 
-    // Upload the vCard
     const uploadUrl = slot.data.upload_url || slot.data.url;
     if (uploadUrl) {
       await uploadAttachmentData(uploadUrl, vcardBuffer, "text/vcard");
     }
 
-    // Send as attachment -- Format 1 confirmed working
     const attachId = slot.data.id || slot.data.attachment_id;
-    if (!attachId) return { ok: false, error: "No attachment ID" };
+    if (!attachId) return { ok: nativeRes.ok, error: "No attachment ID" };
 
     const msgUrl = `${CONFIG.LINQAPP_SEND_URL}/${chatId}/messages`;
     const res = await fetch(msgUrl, {
@@ -2594,14 +2606,14 @@ async function shareContactCard(chatId) {
 
     if (res.ok) {
       console.log(`[Contact] NABI vCard sent: ${res.status}`);
-      return { ok: true, status: res.status };
+      return { ok: true };
     }
 
     const resText = await res.text();
     console.log(`[Contact] vCard send failed (${res.status}): ${resText.substring(0, 300)}`);
-    return { ok: false, error: `Send failed: ${res.status}` };
+    return { ok: nativeRes.ok, error: `vCard send failed: ${res.status}` };
   } catch (err) {
-    console.log(`[Contact] vCard send failed: ${err.message}`);
+    console.log(`[Contact] Contact card failed: ${err.message}`);
     return { ok: false, error: err.message };
   }
 }
