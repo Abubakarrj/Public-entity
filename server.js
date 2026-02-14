@@ -2375,141 +2375,16 @@ function cancelPendingReply(phone) {
 }
 
 // Main response pipeline -- feels human
-async function handleInboundMessage(payload) {
-  const { from, body, chatId, messageId } = payload;
+// ============================================================
+// ACTION EXECUTOR
+// Claude decides, server executes. One brain, one set of hands.
+// ============================================================
 
-  // Step 0a: Duplicate message detection
-  if (messageId && recentMessageIds.has(messageId)) {
-    console.log(`[Dedup] Duplicate message ${messageId} -- skipping`);
-    return;
-  }
-  if (messageId) {
-    recentMessageIds.add(messageId);
-    // Clean up old IDs after 5 minutes
-    setTimeout(() => recentMessageIds.delete(messageId), 5 * 60 * 1000);
-  }
+async function executeActions(actions, context) {
+  const { from, chatId, messageId } = context;
 
-  // Step 0b: Also detect duplicate content from same sender within 3 seconds
-  const dedupeKey = `${from}:${body}`;
-  const now = Date.now();
-  if (recentContentHash[dedupeKey] && (now - recentContentHash[dedupeKey]) < 3000) {
-    console.log(`[Dedup] Same content from ${from} within 3s -- skipping`);
-    return;
-  }
-  recentContentHash[dedupeKey] = now;
-
-  // Step 1: Cancel any in-flight reply (member interrupted us)
-  const wasInterrupted = cancelPendingReply(from);
-  if (wasInterrupted) {
-    const interruptKey = chatId ? `chat:${chatId}` : `phone:${from}`;
-    if (conversationStore[interruptKey] && conversationStore[interruptKey].length > 0) {
-      const lastMsg = conversationStore[interruptKey][conversationStore[interruptKey].length - 1];
-      if (lastMsg.role === "user") {
-        console.log(`[Interrupt] Double message from ${from}`);
-      }
-    }
-  }
-
-  // Track if this person has ever received a contact card
-  // Per-person, not per-chat -- if Bryan got a card anywhere, he doesn't need another
-  const cleanFrom = cleanPhone(from);
-  const isFirstInteraction = !contactCardSent[cleanFrom] && chatId;
-  if (isFirstInteraction) {
-    contactCardSent[cleanFrom] = true;
-    savePersistedData();
-  }
-
-  // === FAST PARALLEL PIPELINE ===
-  // Everything happens at once. Read receipt is instant.
-  // Typing starts immediately. Claude generates while typing shows.
-
-  // Log this message for future reply-to lookups
-  if (messageId) {
-    messageLog[messageId] = { body, from, role: "member", timestamp: Date.now() };
-    // Keep log from growing forever -- prune old entries every 100 messages
-    const logKeys = Object.keys(messageLog);
-    if (logKeys.length > 500) {
-      const toRemove = logKeys.slice(0, logKeys.length - 500);
-      toRemove.forEach(k => delete messageLog[k]);
-    }
-  }
-
-  // Step 3: Read receipt -- INSTANT (like picking up your phone)
-  sendReadReceipt(chatId);
-
-  // Reactions now handled by Claude via react action (no more regex picking)
-
-  // === FLUID HUMAN PIPELINE ===
-  // How a real person texts: see message -> start typing quickly -> send when done
-  // No dead air. No stop-typing-then-send gap. Fluid.
-
-  // Name extraction now handled by Claude via set_name action
-  const pipelineStart = Date.now();
-
-  // Start typing immediately for groups (debounce already waited)
-  // For DMs, short delay to simulate glancing at the message
-  if (!payload.typingAlreadySent) {
-    const readDelay = 400 + Math.random() * 400;
-    setTimeout(() => sendTypingIndicator(chatId), readDelay);
-  } else {
-    // Group: typing was sent at debounce time, re-fire now to refresh it
-    sendTypingIndicator(chatId);
-  }
-
-  // Typing keepalive -- re-fire every 1.5s so the bubble NEVER drops while Claude thinks
-  const typingKeepalive = setInterval(() => {
-    sendTypingIndicator(chatId);
-  }, 1500);
-
-  // Generate reply IN PARALLEL (Claude starts thinking immediately)
-  // Build member's group list for relay context (DMs only)
-  const memberGroups = !payload.isGroup ? findMemberGroups(from).map(g => ({
-    chatId: g.chatId, name: g.groupName || null,
-  })) : [];
-
-  const replyPromise = conciergeReply(body, from, {
-    isGroup: payload.isGroup, chatId: payload.chatId,
-    senderName: payload.senderName, historyAlreadyAdded: payload.historyAlreadyAdded,
-    imageItems: payload.imageItems, replyContext: payload.replyContext,
-    isFirstInteraction, memberGroups, messageId,
-  });
-
-  const result = await replyPromise;
-  clearInterval(typingKeepalive); // Stop keepalive once Claude responds
-  const reply = typeof result === "object" ? result.reply : result;
-  const actions = typeof result === "object" ? (result.actions || []) : [];
-  console.log(`[Concierge] "${body}" -> "${reply}" (${actions.length} actions)`);
-
-  // === EXECUTE PRE-REPLY ACTIONS (reactions fire BEFORE the text) ===
-  const reactAction = actions.find(a => a.type === "react");
-  if (reactAction && reactAction.emoji && messageId) {
-    reactToMessage(messageId, reactAction.emoji);
-    console.log(`[Action] React: ${reactAction.emoji}`);
-  }
-
-  // Ensure the typing bubble was visible for a natural amount of time
-  const elapsed = Date.now() - pipelineStart;
-  const minTime = 1800 + Math.random() * 700;
-  const waitMore = Math.max(0, minTime - elapsed);
-
-  // Interruption check
-  const replyState = { cancelled: false, timeout: null };
-  pendingReplies[from] = replyState;
-
-  if (waitMore > 0) {
-    await new Promise((resolve) => {
-      replyState.timeout = setTimeout(resolve, waitMore);
-    });
-  }
-
-  if (replyState.cancelled) {
-    console.log(`[Interrupt] Reply cancelled for ${from}`);
-    return;
-  }
-
-  // === EXECUTE POST-REPLY ACTIONS (everything except react) ===
   for (const action of actions) {
-    if (action.type === "react") continue; // already fired above
+    if (action.type === "react") continue; // handled pre-reply
     try {
       switch (action.type) {
         case "set_name":
@@ -2538,8 +2413,7 @@ async function handleInboundMessage(payload) {
           if (action.target && action.message) {
             const targetGroup = findGroupByName(action.target);
             if (targetGroup) {
-              // Bold the sender name using Unicode bold characters
-              const boldMessage = action.message.replace(/^([^:]+):/, (match, name) => `${toBoldUnicode(name)}:`);
+              const boldMessage = action.message.replace(/^([^:]+):/, (m, name) => `${toBoldUnicode(name)}:`);
               setTimeout(() => {
                 sendToGroup(targetGroup.chatId, boldMessage);
                 console.log(`[Action] Relay to "${action.target}": "${boldMessage}"`);
@@ -2575,25 +2449,192 @@ async function handleInboundMessage(payload) {
         default:
           console.log(`[Action] Unknown type: ${action.type}`);
       }
-    } catch (actionErr) {
-      console.error(`[Action] Error executing ${action.type}:`, actionErr.message);
+    } catch (err) {
+      console.error(`[Action] Error executing ${action.type}:`, err.message);
+    }
+  }
+}
+
+// Track pending DM pipelines so follow-ups can trigger rethink
+const pendingDMPipelines = {}; // phone -> { abortController, timeout, chatId }
+
+async function handleInboundMessage(payload) {
+  const { from, body, chatId, messageId } = payload;
+
+  // Step 0a: Duplicate message detection
+  if (messageId && recentMessageIds.has(messageId)) {
+    console.log(`[Dedup] Duplicate message ${messageId} -- skipping`);
+    return;
+  }
+  if (messageId) {
+    recentMessageIds.add(messageId);
+    setTimeout(() => recentMessageIds.delete(messageId), 5 * 60 * 1000);
+  }
+
+  // Step 0b: Also detect duplicate content from same sender within 3 seconds
+  const dedupeKey = `${from}:${body}`;
+  const now = Date.now();
+  if (recentContentHash[dedupeKey] && (now - recentContentHash[dedupeKey]) < 3000) {
+    console.log(`[Dedup] Same content from ${from} within 3s -- skipping`);
+    return;
+  }
+  recentContentHash[dedupeKey] = now;
+
+  // Step 1: Cancel any in-flight reply (member interrupted / followed up)
+  const wasInterrupted = cancelPendingReply(from);
+  if (wasInterrupted) {
+    console.log(`[Rethink] Follow-up from ${from} while reply pending -- Claude will see both messages`);
+  }
+
+  // Step 1b: If Claude is currently thinking for this person, cancel and rethink
+  if (pendingDMPipelines[from]) {
+    pendingDMPipelines[from].cancelled = true;
+    if (pendingDMPipelines[from].typingKeepalive) {
+      clearInterval(pendingDMPipelines[from].typingKeepalive);
+    }
+    console.log(`[Rethink] Cancelling in-flight Claude call for ${from} -- will rethink with new context`);
+  }
+
+  // Track if this person has ever received a contact card
+  // Per-person, not per-chat -- if Bryan got a card anywhere, he doesn't need another
+  const cleanFrom = cleanPhone(from);
+  const isFirstInteraction = !contactCardSent[cleanFrom] && chatId;
+  if (isFirstInteraction) {
+    contactCardSent[cleanFrom] = true;
+    savePersistedData();
+  }
+
+
+
+
+
+  // Log this message for future reply-to lookups
+  if (messageId) {
+    messageLog[messageId] = { body, from, role: "member", timestamp: Date.now() };
+    // Keep log from growing forever -- prune old entries every 100 messages
+    const logKeys = Object.keys(messageLog);
+    if (logKeys.length > 500) {
+      const toRemove = logKeys.slice(0, logKeys.length - 500);
+      toRemove.forEach(k => delete messageLog[k]);
     }
   }
 
+  // Step 3: Read receipt -- INSTANT (like picking up your phone)
+  sendReadReceipt(chatId);
+
+
+
+  const pipelineStart = Date.now();
+
+  // Register this pipeline so follow-ups can cancel it
+  const pipelineState = { cancelled: false, typingKeepalive: null };
+  pendingDMPipelines[from] = pipelineState;
+
+  // Start typing
+  if (!payload.typingAlreadySent) {
+    const readDelay = 400 + Math.random() * 400;
+    setTimeout(() => sendTypingIndicator(chatId), readDelay);
+  } else {
+    sendTypingIndicator(chatId);
+  }
+
+  // Typing keepalive
+  const typingKeepalive = setInterval(() => sendTypingIndicator(chatId), 1500);
+  pipelineState.typingKeepalive = typingKeepalive;
+
+  // Build member's group list for relay context (DMs only)
+  const memberGroups = !payload.isGroup ? findMemberGroups(from).map(g => ({
+    chatId: g.chatId, name: g.groupName || null,
+  })) : [];
+
+  const replyPromise = conciergeReply(body, from, {
+    isGroup: payload.isGroup, chatId: payload.chatId,
+    senderName: payload.senderName, historyAlreadyAdded: payload.historyAlreadyAdded,
+    imageItems: payload.imageItems, replyContext: payload.replyContext,
+    isFirstInteraction, memberGroups, messageId,
+  });
+
+  const result = await replyPromise;
+  clearInterval(typingKeepalive);
+
+  // If a follow-up arrived while Claude was thinking, abandon this reply
+  // The new pipeline will re-ask Claude with both messages in history
+  if (pipelineState.cancelled) {
+    console.log(`[Rethink] Pipeline for "${body}" abandoned -- follow-up arrived`);
+    return;
+  }
+
+  const reply = typeof result === "object" ? result.reply : result;
+  const actions = typeof result === "object" ? (result.actions || []) : [];
+  console.log(`[Concierge] "${body}" -> "${reply}" (${actions.length} actions)`);
+
+  // === EXECUTE PRE-REPLY ACTIONS (reactions fire BEFORE the text) ===
+  const reactAction = actions.find(a => a.type === "react");
+  if (reactAction && reactAction.emoji && messageId) {
+    reactToMessage(messageId, reactAction.emoji);
+    console.log(`[Action] React: ${reactAction.emoji}`);
+  }
+
+  // === HUMAN TYPING SIMULATION ===
+  // Scale delay to reply length. Short replies = fast. Long replies = slower.
+  // A real person types ~40-60 WPM casually on a phone = ~200-300ms per word
+  // But they also pause to think, so we add a base "think" time
+  const elapsed = Date.now() - pipelineStart;
+  const wordCount = reply ? reply.split(/\s+/).filter(Boolean).length : 0;
+
+  let targetTime;
+  if (!reply || !reply.trim()) {
+    // Reaction only — just a quick tap
+    targetTime = 800 + Math.random() * 400;
+  } else if (wordCount <= 3) {
+    // Short reply ("bet", "on it", "what's good") — fast but not instant
+    targetTime = 1200 + Math.random() * 600;
+  } else if (wordCount <= 8) {
+    // Medium reply (one sentence) — normal texting speed
+    targetTime = 2000 + (wordCount * 150) + Math.random() * 500;
+  } else {
+    // Long reply — they're thinking + typing
+    targetTime = 2500 + (wordCount * 120) + Math.random() * 800;
+  }
+
+  // Cap at 6 seconds — nobody waits that long for a text
+  targetTime = Math.min(targetTime, 6000);
+
+  const waitMore = Math.max(0, targetTime - elapsed);
+  console.log(`[Timing] ${wordCount} words, target: ${Math.round(targetTime)}ms, elapsed: ${Math.round(elapsed)}ms, waiting: ${Math.round(waitMore)}ms`);
+
+  // Interruption check
+  const replyState = { cancelled: false, timeout: null };
+  pendingReplies[from] = replyState;
+
+  if (waitMore > 0) {
+    await new Promise((resolve) => {
+      replyState.timeout = setTimeout(resolve, waitMore);
+    });
+  }
+
+  if (replyState.cancelled) {
+    console.log(`[Interrupt] Reply cancelled for ${from}`);
+    return;
+  }
+
+  // Execute post-reply actions (everything except react)
+  await executeActions(actions, { from, chatId, messageId });
+
   // Send reply (if not empty -- empty means reaction-only)
+  let sendResult = { ok: false };
   if (reply && reply.trim()) {
-    const sendResult = await sendSMS(from, reply, chatId);
+    sendResult = await sendSMS(from, reply, chatId);
     console.log(`[Concierge] Reply sent (${Date.now() - pipelineStart}ms):`, sendResult.ok ? "OK" : sendResult.error);
 
-    // Log outbound message for reply-to lookups
     if (sendResult.ok && sendResult.messageId) {
       messageLog[sendResult.messageId] = { body: reply, from: "concierge", role: "concierge", timestamp: Date.now() };
     }
   } else {
-    console.log(`[Concierge] No text reply (reaction only or empty)`);
+    console.log(`[Concierge] No text reply (reaction only)`);
   }
 
-  // First interaction: welcome message + card (automated, not Claude's job)
+  // First interaction: welcome message + card
   if (isFirstInteraction && !actions.some(a => a.type === "send_contact_card")) {
     setTimeout(async () => {
       const welcomeMsg = "btw I'm Nabi -- I run drinks at Public Entity. order anytime, schedule ahead, or just come talk. save my number so you don't lose me";
@@ -2602,10 +2643,9 @@ async function handleInboundMessage(payload) {
     }, 2500);
   }
 
-  // Clean up
+  // Cleanup and tracking
   delete pendingReplies[from];
-
-  // Track interaction for proactive follow-ups
+  delete pendingDMPipelines[from];
   const hasOrderAction = actions.some(a => a.type === "learn_order");
   lastInteraction[from] = {
     time: Date.now(),
@@ -2614,19 +2654,16 @@ async function handleInboundMessage(payload) {
     orderPending: hasOrderAction,
   };
 
-  // Notify dashboards
   broadcast({
     type: "outbound_message",
     to: from,
     body: reply,
     auto: true,
-    sendResult: result,
     timing: Date.now() - pipelineStart,
     timestamp: Date.now(),
   });
 
-  // Step 11: Schedule proactive follow-up if order was placed
-  if (lastInteraction[from].orderPending) {
+  if (hasOrderAction) {
     scheduleOrderFollowUp(from, chatId);
   }
 }
@@ -2977,7 +3014,6 @@ app.post("/api/webhook/linqapp", async (req, res) => {
     const participantCount = group.participants ? group.participants.size : 0;
     const senderLabel = payload.senderName || member.name || getName(payload.from) || payload.from;
 
-    // Name extraction now handled by Claude via set_name action
 
     // Build reply-to prefix for group messages
     let groupReplyPrefix = "";
