@@ -2677,9 +2677,11 @@ async function handleInboundMessage(payload) {
           if (action.target && action.message) {
             const targetGroup = findGroupByName(action.target);
             if (targetGroup) {
+              // Bold the sender name using Unicode bold characters
+              const boldMessage = action.message.replace(/^([^:]+):/, (match, name) => `${toBoldUnicode(name)}:`);
               setTimeout(() => {
-                sendToGroup(targetGroup.chatId, action.message);
-                console.log(`[Action] Relay to "${action.target}": "${action.message}"`);
+                sendToGroup(targetGroup.chatId, boldMessage);
+                console.log(`[Action] Relay to "${action.target}": "${boldMessage}"`);
               }, 1000);
             } else {
               console.log(`[Action] Relay failed -- group "${action.target}" not found`);
@@ -3329,6 +3331,21 @@ async function normalizeInbound(body) {
     imageItems,
     replyContext, // { id, body, from, role } if replying to a specific message
   };
+}
+
+// Convert text to Unicode bold (works in iMessage/SMS without markdown)
+function toBoldUnicode(text) {
+  const boldMap = {
+    'A': '𝗔', 'B': '𝗕', 'C': '𝗖', 'D': '𝗗', 'E': '𝗘', 'F': '𝗙', 'G': '𝗚',
+    'H': '𝗛', 'I': '𝗜', 'J': '𝗝', 'K': '𝗞', 'L': '𝗟', 'M': '𝗠', 'N': '𝗡',
+    'O': '𝗢', 'P': '𝗣', 'Q': '𝗤', 'R': '𝗥', 'S': '𝗦', 'T': '𝗧', 'U': '𝗨',
+    'V': '𝗩', 'W': '𝗪', 'X': '𝗫', 'Y': '𝗬', 'Z': '𝗭',
+    'a': '𝗮', 'b': '𝗯', 'c': '𝗰', 'd': '𝗱', 'e': '𝗲', 'f': '𝗳', 'g': '𝗴',
+    'h': '𝗵', 'i': '𝗶', 'j': '𝗷', 'k': '𝗸', 'l': '𝗹', 'm': '𝗺', 'n': '𝗻',
+    'o': '𝗼', 'p': '𝗽', 'q': '𝗾', 'r': '𝗿', 's': '𝘀', 't': '𝘁', 'u': '𝘂',
+    'v': '𝘃', 'w': '𝘄', 'x': '𝘅', 'y': '𝘆', 'z': '𝘇',
+  };
+  return text.split("").map(c => boldMap[c] || c).join("");
 }
 
 function cleanPhone(phone) {
