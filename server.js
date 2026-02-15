@@ -3737,8 +3737,19 @@ function buildVCard() {
     "N:;Claire;;;",
     `TEL;TYPE=CELL:${phone}`,
     "ORG:Public Entity",
-    `PHOTO;ENCODING=b;TYPE=JPEG:${CLAIRE_PHOTO_B64}`,
   ];
+
+  // Add photo with proper line folding (vCard 3.0 spec: 75 char lines, continuation with space)
+  const photoHeader = "PHOTO;TYPE=JPEG;ENCODING=BASE64:";
+  const fullPhotoLine = photoHeader + CLAIRE_PHOTO_B64;
+  // First line can be full length, continuation lines start with a space
+  const firstLine = fullPhotoLine.substring(0, 75);
+  lines.push(firstLine);
+  let pos = 75;
+  while (pos < fullPhotoLine.length) {
+    lines.push(" " + fullPhotoLine.substring(pos, pos + 74));
+    pos += 74;
+  }
 
   lines.push("END:VCARD");
   console.log("[Contact] vCard built with embedded photo");
